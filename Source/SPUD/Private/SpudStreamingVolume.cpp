@@ -31,24 +31,25 @@ void ASpudStreamingVolume::BeginPlay()
 	// possessed, which triggers the overlap event, but we don't care about it yet because it's not player controlled.
 	// Similarly if a possessed pawn which is overlapping this volume is then unpossessed, we need to unsub the level.
 	// So we need to be told when a pawn is is possessed or unpossessed to be able to close this loophole.
+#if ENGINE_MINOR_VERSION > 25
 	auto GI = GetWorld()->GetGameInstance();
 	if (GI)
 	{
 		GI->GetOnPawnControllerChanged().AddDynamic(this, &ASpudStreamingVolume::OnPawnControllerChanged);
 	}
-	
+#endif
 }
 
 void ASpudStreamingVolume::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	Super::EndPlay(EndPlayReason);
-
+#if ENGINE_MINOR_VERSION > 25
 	auto GI = GetWorld()->GetGameInstance();
 	if (GI)
 	{
 		GI->GetOnPawnControllerChanged().RemoveDynamic(this, &ASpudStreamingVolume::OnPawnControllerChanged);
 	}
-	
+#endif
 }
 
 bool ASpudStreamingVolume::IsRelevantActor(AActor* Actor) const
