@@ -30,6 +30,7 @@ void USpudState::ResetState()
 void USpudState::StoreWorldGlobals(UWorld* World)
 {
 	SaveData.GlobalData.CurrentLevel = World->GetFName().ToString();
+	SaveData.GlobalData.CurrentTimeSeconds = World->GetTimeSeconds();
 }
 
 

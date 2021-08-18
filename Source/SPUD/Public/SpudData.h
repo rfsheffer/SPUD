@@ -666,6 +666,8 @@ struct SPUD_API FSpudGlobalData : public FSpudChunk
 
 	/// The map name of the level the player was currently on, so we can load back to that point
 	FString CurrentLevel;
+	/// The time in seconds CurrentLevel has been up for, the value of GetWorld()->GetTimeSeconds().
+	float CurrentTimeSeconds;
 	/// Class definitions etc for all objects in this global data set
 	FSpudClassMetadata Metadata;
 	/// Actual storage of object data

@@ -748,6 +748,7 @@ void FSpudGlobalData::WriteToArchive(FSpudChunkedDataArchive& Ar)
 	if (ChunkStart(Ar))
 	{
 		Ar << CurrentLevel;
+		Ar << CurrentTimeSeconds;
 		Metadata.WriteToArchive(Ar);
 		Objects.WriteToArchive(Ar);
 		ChunkEnd(Ar);
@@ -760,6 +761,7 @@ void FSpudGlobalData::ReadFromArchive(FSpudChunkedDataArchive& Ar, uint32 Stored
 	if (ChunkStart(Ar))
 	{
 		Ar << CurrentLevel;
+		Ar << CurrentTimeSeconds;
 
 		const uint32 MetadataID = FSpudChunkHeader::EncodeMagic(SPUDDATA_METADATA_MAGIC);
 		const uint32 ObjectsID = FSpudChunkHeader::EncodeMagic(SPUDDATA_GLOBALOBJECTLIST_MAGIC);
@@ -782,6 +784,7 @@ void FSpudGlobalData::ReadFromArchive(FSpudChunkedDataArchive& Ar, uint32 Stored
 void FSpudGlobalData::Reset()
 {
 	CurrentLevel = "";
+	CurrentTimeSeconds = 0.0f;
 	Metadata.Reset();
 	Objects.Empty();
 }
