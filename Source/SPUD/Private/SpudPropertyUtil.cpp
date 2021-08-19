@@ -746,23 +746,36 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 	}
 	else 
 	{
-		bUpdateOK =
-            TryReadPropertyData<FBoolProperty,		bool>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FByteProperty,		uint8>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FUInt16Property,	uint16>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FUInt32Property,	uint32>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FUInt64Property,	uint64>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FInt8Property,		int8>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FInt16Property,	int16>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FIntProperty,		int>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FInt64Property,	int64>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FFloatProperty,	float>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FDoubleProperty,	double>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FStrProperty,		FString>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FNameProperty,		FName>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadPropertyData<FTextProperty,		FText>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-            TryReadEnumPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn);
-
+		if(TryReadPropertyData<FFloatProperty,	float>(Property, DataPtr, StoredProperty, Depth, DataIn))
+		{
+			bUpdateOK = true;
+			// Special case time offset might need to be applied
+			if(Property->HasMetaData(TEXT("SavedWorldTime")))
+			{
+				const FFloatProperty* fltProp = CastField<FFloatProperty>(Property);
+				const float newOffsetTime = (fltProp->GetPropertyValue(DataPtr) - Meta.ClassWorldTimeSeconds) + Meta.GlobalWorldTimeSeconds;
+				fltProp->SetPropertyValue(DataPtr, newOffsetTime);
+			}
+		}
+		else
+		{
+			bUpdateOK =
+			TryReadPropertyData<FBoolProperty,		bool>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FByteProperty,		uint8>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FUInt16Property,	uint16>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FUInt32Property,	uint32>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FUInt64Property,	uint64>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FInt8Property,		int8>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FInt16Property,	int16>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FIntProperty,		int>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FInt64Property,	int64>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FDoubleProperty,	double>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FStrProperty,		FString>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FNameProperty,		FName>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadPropertyData<FTextProperty,		FText>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadEnumPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn);
+		}
+			
 		if (!bUpdateOK)
 		{
 			// Actors can refer to each other

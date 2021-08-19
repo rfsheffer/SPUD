@@ -30,7 +30,6 @@ void USpudState::ResetState()
 void USpudState::StoreWorldGlobals(UWorld* World)
 {
 	SaveData.GlobalData.CurrentLevel = World->GetFName().ToString();
-	SaveData.GlobalData.CurrentTimeSeconds = World->GetTimeSeconds();
 }
 
 
@@ -47,7 +46,10 @@ void USpudState::StoreLevel(ULevel* Level, bool bRelease, bool bBlocking)
 		// Clear any existing data for levels being updated from
 		// Which is either the specific level, or all loaded levels
 		if (LevelData)
+		{
 			LevelData->PreStoreWorld();
+			LevelData->LevelTimeSeconds = Level->GetWorld()->GetTimeSeconds();
+		}
 
 		for (auto Actor : Level->Actors)
 		{
@@ -585,6 +587,11 @@ void USpudState::RestoreActor(AActor* Actor, FSpudSaveData::TLevelDataPtr LevelD
 		PreRestoreObject(Actor, LevelData->GetUserDataModelVersion());
 		
 		RestoreCoreActorData(Actor, ActorData->CoreData);
+
+		// Set the class time to the level time
+		LevelData->Metadata.ClassWorldTimeSeconds = LevelData->LevelTimeSeconds;
+		LevelData->Metadata.GlobalWorldTimeSeconds = Actor->GetWorld()->GetTimeSeconds();
+		
 		RestoreObjectProperties(Actor, ActorData->Properties, LevelData->Metadata, RuntimeObjects);
 
 		PostRestoreObject(Actor, ActorData->CustomData, LevelData->GetUserDataModelVersion());		

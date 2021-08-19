@@ -573,6 +573,7 @@ uint32 FSpudClassMetadata::GetClassIDFromName(const FString& Name) const
 
 void FSpudClassMetadata::Reset()
 {
+	ClassWorldTimeSeconds = GlobalWorldTimeSeconds = 0.0f;
 	ClassDefinitions.Reset();
 	PropertyNameIndex.Empty();
 	ClassNameIndex.Empty();	
@@ -628,6 +629,7 @@ void FSpudLevelData::WriteToArchive(FSpudChunkedDataArchive& Ar)
 	if (ChunkStart(Ar))
 	{
 		Ar << Name;
+		Ar << LevelTimeSeconds;
 		Metadata.WriteToArchive(Ar);
 		LevelActors.WriteToArchive(Ar);
 		SpawnedActors.WriteToArchive(Ar);
@@ -676,6 +678,7 @@ void FSpudLevelData::ReadFromArchive(FSpudChunkedDataArchive& Ar, uint32 StoredS
 	if (ChunkStart(Ar))
 	{
 		Ar << Name;
+		Ar << LevelTimeSeconds;
 
 		const uint32 MetadataID = FSpudChunkHeader::EncodeMagic(SPUDDATA_METADATA_MAGIC);
 		const uint32 LevelActorsID = FSpudChunkHeader::EncodeMagic(SPUDDATA_LEVELACTORLIST_MAGIC);
@@ -709,6 +712,7 @@ void FSpudLevelData::PreStoreWorld()
 
 	// We do NOT empty the destroyed actors list because those are populated as things are removed
 	// Hence why NOT calling Reset()
+	LevelTimeSeconds = 0.0f;
 	Metadata.Reset();
 	LevelActors.Reset();
 	SpawnedActors.Reset();
@@ -718,6 +722,7 @@ void FSpudLevelData::Reset()
 {
 	FScopeLock Lock(&Mutex);
 	Name = "";
+	LevelTimeSeconds = 0.0f;
 	Metadata.Reset();
 	LevelActors.Reset();
 	SpawnedActors.Reset();
@@ -748,7 +753,6 @@ void FSpudGlobalData::WriteToArchive(FSpudChunkedDataArchive& Ar)
 	if (ChunkStart(Ar))
 	{
 		Ar << CurrentLevel;
-		Ar << CurrentTimeSeconds;
 		Metadata.WriteToArchive(Ar);
 		Objects.WriteToArchive(Ar);
 		ChunkEnd(Ar);
@@ -761,7 +765,6 @@ void FSpudGlobalData::ReadFromArchive(FSpudChunkedDataArchive& Ar, uint32 Stored
 	if (ChunkStart(Ar))
 	{
 		Ar << CurrentLevel;
-		Ar << CurrentTimeSeconds;
 
 		const uint32 MetadataID = FSpudChunkHeader::EncodeMagic(SPUDDATA_METADATA_MAGIC);
 		const uint32 ObjectsID = FSpudChunkHeader::EncodeMagic(SPUDDATA_GLOBALOBJECTLIST_MAGIC);
@@ -784,7 +787,6 @@ void FSpudGlobalData::ReadFromArchive(FSpudChunkedDataArchive& Ar, uint32 Stored
 void FSpudGlobalData::Reset()
 {
 	CurrentLevel = "";
-	CurrentTimeSeconds = 0.0f;
 	Metadata.Reset();
 	Objects.Empty();
 }

@@ -628,6 +628,13 @@ struct SPUD_API FSpudClassMetadata : public FSpudChunk
 	/// The user data model version number when this metadata was generated
 	/// @see USpudSubsystem::SetUserDataModelVersion
 	FSpudVersionInfo UserDataModelVersion;
+
+	/// Class time property offsetting (NOT SERIALIZED)
+	/// The time this class was serialized (frozen in time). Used for offsetting time variables to the current world time.
+	float ClassWorldTimeSeconds;
+	/// The current world time at serialization time
+	float GlobalWorldTimeSeconds;
+	/// END Class time property offsetting
 	
 	virtual const char* GetMagic() const override { return SPUDDATA_METADATA_MAGIC; }
 	virtual void WriteToArchive(FSpudChunkedDataArchive& Ar) override;
@@ -667,8 +674,6 @@ struct SPUD_API FSpudGlobalData : public FSpudChunk
 
 	/// The map name of the level the player was currently on, so we can load back to that point
 	FString CurrentLevel;
-	/// The time in seconds CurrentLevel has been up for, the value of GetWorld()->GetTimeSeconds().
-	float CurrentTimeSeconds;
 	/// Class definitions etc for all objects in this global data set
 	FSpudClassMetadata Metadata;
 	/// Actual storage of object data
@@ -689,6 +694,9 @@ struct SPUD_API FSpudLevelData : public FSpudChunk
 	FString Name;
 	// this is DELIBERATELY an FString and not an FName because writing FNames to FArchive seems very unreliable
 	// it would work fine when writing to an FMemoryWriter but not to an FArchiveFileWriterGeneric (at least using FArchiveProxy)
+
+	/// The time in seconds the Level has been up for, the value of GetWorld()->GetTimeSeconds() as store time of this level.
+	float LevelTimeSeconds;
 
 	/// Class definitions for contents of this level
 	/// Per level rather than using global because level data may get out of date. If player doesn't
@@ -722,6 +730,7 @@ struct SPUD_API FSpudLevelData : public FSpudChunk
 	FSpudLevelData(const FSpudLevelData& Other)
 		: FSpudChunk(Other),
 		  Name(Other.Name),
+		  LevelTimeSeconds(Other.LevelTimeSeconds),
 		  Metadata(Other.Metadata),
 		  LevelActors(Other.LevelActors),
 		  SpawnedActors(Other.SpawnedActors),
