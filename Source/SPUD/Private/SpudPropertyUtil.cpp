@@ -67,7 +67,8 @@ bool SpudPropertyUtil::IsActorObjectProperty(const FProperty* Property)
 {
 	if (const auto OProp = CastField<FObjectProperty>(Property))
 	{
-		if (OProp->PropertyClass && OProp->PropertyClass->IsChildOf(AActor::StaticClass()))
+		if (CastField<FClassProperty>(Property) == nullptr &&
+			OProp->PropertyClass && OProp->PropertyClass->IsChildOf(AActor::StaticClass()))
 		{
 			return true;
 		}
@@ -79,7 +80,8 @@ bool SpudPropertyUtil::IsNonActorObjectProperty(const FProperty* Property)
 {
 	if (const auto OProp = CastField<FObjectProperty>(Property))
 	{
-		if (OProp->PropertyClass && !OProp->PropertyClass->IsChildOf(AActor::StaticClass()))
+		if (CastField<FClassProperty>(Property) == nullptr &&
+			OProp->PropertyClass && !OProp->PropertyClass->IsChildOf(AActor::StaticClass()))
 		{
 			return true;
 		}
@@ -111,6 +113,11 @@ uint16 SpudPropertyUtil::GetPropertyDataType(const FProperty* Prop)
 			Ret = SpudTypeInfo<FGuid>::EnumType;
 		else
 			Ret = ESST_CustomStruct; // Anything else is a custom struct
+	}
+	// Check for FClassProperty before FObjectProperty as FClassProperty is derived from FObjectProperty
+	else if (CastField<FClassProperty>(ActualProp))
+	{
+		Ret = SpudTypeInfo<UClass*>::EnumType;
 	}
 	else if (CastField<FObjectProperty>(ActualProp))
 	{
@@ -326,6 +333,62 @@ bool SpudPropertyUtil::TryReadEnumPropertyData(FProperty* Prop, void* Data,
 		// Enums as 16-bit numbers, that should be large enough!
 		const uint16 Val = ReadEnumPropertyData(EProp, Data, In);
 		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ToString(Val));
+		return true;
+	}
+	return false;
+}
+
+#define CLASS_PROPERTY_NULL TEXT("NULL")
+
+bool SpudPropertyUtil::TryWriteClassPropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
+													bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef,
+													TArray<uint32>& PropertyOffsets,
+													FSpudClassMetadata& Meta, FArchive& Out)
+{
+	const auto CProp = CastField<FClassProperty>(Property);
+	if (CProp)
+	{
+		// Class reference properties are stored as a class ClassID
+		if (!bIsArrayElement)
+			RegisterProperty(CProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+
+		FString classIDStr = CLASS_PROPERTY_NULL;
+		const UClass* obj = Cast<const UClass>(CProp->GetPropertyValue(Data));
+		if(obj)
+		{
+			classIDStr = obj->GetPathName();
+		}
+		Out << classIDStr;
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Property, Depth), *classIDStr);
+		return true;
+	}
+	return false;
+}
+
+bool SpudPropertyUtil::TryReadClassPropertyData(FProperty* Prop, void* Data,
+													const FSpudPropertyDef& StoredProperty,
+													int Depth, FArchive& In)
+{
+	const auto CProp = CastField<FClassProperty>(Prop);
+	if (CProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
+		// we ignore array flag since we could be processing inner
+	{
+		// Class ID is a string path
+		FString classIDStr;
+		In << classIDStr;
+
+		UClass* loadedClass;
+		if(classIDStr == CLASS_PROPERTY_NULL)
+		{
+			loadedClass = nullptr;
+		}
+		else
+		{
+			loadedClass = StaticLoadClass(CProp->MetaClass, nullptr, *classIDStr);
+		}
+
+		CProp->SetObjectPropertyValue(Data, loadedClass);
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *classIDStr);
 		return true;
 	}
 	return false;
@@ -662,6 +725,8 @@ void SpudPropertyUtil::StoreContainerProperty(FProperty* Property, const UObject
             TryWritePropertyData<FNameProperty,		FName>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
             TryWritePropertyData<FTextProperty,		FText>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
             TryWriteEnumPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
+            // Class properties always before UObject
+            TryWriteClassPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
             TryWriteUObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out);;
 		
 	}
@@ -773,7 +838,8 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 			TryReadPropertyData<FStrProperty,		FString>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
 			TryReadPropertyData<FNameProperty,		FName>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
 			TryReadPropertyData<FTextProperty,		FText>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadEnumPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn);
+			TryReadEnumPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+			TryReadClassPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn);
 		}
 			
 		if (!bUpdateOK)

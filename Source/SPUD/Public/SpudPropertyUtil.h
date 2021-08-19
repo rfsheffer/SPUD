@@ -43,6 +43,12 @@ template <> struct SpudTypeInfo<UObject*>
 	static const ESpudStorageType EnumType = ESST_UInt32;
 	using StorageType = uint32;
 };
+// Class references are stored as a ClassID
+template <> struct SpudTypeInfo<UClass*>
+{
+	static const ESpudStorageType EnumType = ESST_String;
+	using StorageType = FString;
+};
 /// Now the simpler types where StorageType == input type 
 template <> const ESpudStorageType SpudTypeInfo<uint8>::EnumType = ESST_UInt8;
 template <> const ESpudStorageType SpudTypeInfo<uint16>::EnumType = ESST_UInt16;
@@ -281,6 +287,10 @@ protected:
 	                                     int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
 	                                     FSpudClassMetadata& Meta,
 	                                     FArchive& Out);
+	static bool TryWriteClassPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
+										  int Depth, FSpudClassDef& ClassDef,TArray<uint32>& PropertyOffsets,
+										  FSpudClassMetadata& Meta,
+										  FArchive& Out);
 	static FString WriteActorRefPropertyData(FObjectProperty* OProp, AActor* Actor, FPlatformTypes::uint32 PrefixID, const void* Data,
 	                                         bool bIsArrayElement, FSpudClassDef& ClassDef,
 	                                         TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
@@ -368,6 +378,8 @@ protected:
 	static uint16 ReadEnumPropertyData(FEnumProperty* EProp, void* Data, FArchive& In);
 	static bool TryReadEnumPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
 	                                    int Depth, FArchive& In);
+	static bool TryReadClassPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
+										 int Depth, FArchive& In);
 	static FString ReadActorRefPropertyData(::FObjectProperty* OProp, void* Data, const RuntimeObjectMap* RuntimeObjects, ULevel* Level, FArchive& In);
 	static FString ReadNestedUObjectPropertyData(::FObjectProperty* OProp, void* Data, const RuntimeObjectMap* RuntimeObjects,
 		ULevel* Level, const FSpudClassMetadata& Meta, FArchive& In);
