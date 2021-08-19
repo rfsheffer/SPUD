@@ -2,8 +2,10 @@
 #include "EngineUtils.h"
 #include "SpudState.h"
 #include "Engine/LevelStreaming.h"
+#include "Engine/LocalPlayer.h"
 #include "Kismet/GameplayStatics.h"
 #include "ImageUtils.h"
+#include "TimerManager.h"
 
 DEFINE_LOG_CATEGORY(LogSpudSubsystem)
 
@@ -19,10 +21,7 @@ void USpudSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	OnPostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &USpudSubsystem::OnPostLoadMap);
 	OnPreLoadMapHandle = FCoreUObjectDelegates::PreLoadMap.AddUObject(this, &USpudSubsystem::OnPreLoadMap);
 	
-#if ENGINE_MINOR_VERSION >= 26
-	// Seamless travel is only supported on 4.26+ since event is only present there
 	OnSeamlessTravelHandle = FWorldDelegates::OnSeamlessTravelTransition.AddUObject(this, &USpudSubsystem::OnSeamlessTravelTransition);
-#endif
 	
 #if WITH_EDITORONLY_DATA
 	// The one problem we have is that in PIE mode, PostLoadMap doesn't get fired for the current map you're on
@@ -41,9 +40,7 @@ void USpudSubsystem::Deinitialize()
 {
 	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(OnPostLoadMapHandle);
 	FCoreUObjectDelegates::PreLoadMap.Remove(OnPreLoadMapHandle);
-#if ENGINE_MINOR_VERSION >= 26
 	FWorldDelegates::OnSeamlessTravelTransition.Remove(OnSeamlessTravelHandle);
-#endif
 }
 
 
@@ -116,6 +113,16 @@ bool USpudSubsystem::IsAutoSave(const FString& SlotName)
 	return SlotName == SPUD_AUTOSAVE_SLOTNAME;
 }
 
+void USpudSubsystem::NotifyLevelLoadedExternally(FName LevelName)
+{
+	HandleLevelLoaded(LevelName);
+}
+
+void USpudSubsystem::NotifyLevelUnloadedExternally(ULevel* Level)
+{
+	HandleLevelUnloaded(Level);
+}
+
 void USpudSubsystem::LoadLatestSaveGame()
 {
 	auto Latest = GetLatestSaveGame();
@@ -153,7 +160,6 @@ void USpudSubsystem::OnPreLoadMap(const FString& MapName)
 
 void USpudSubsystem::OnSeamlessTravelTransition(UWorld* World)
 {
-	// note: this only gets called on 4.26+
 	if (IsValid(World))
 	{
 		FString MapName = UGameplayStatics::GetCurrentLevelName(World);
@@ -355,6 +361,37 @@ void USpudSubsystem::SaveComplete(const FString& SlotName, bool bSuccess)
 	ExtraInfoInProgress = nullptr;
 	CurrentState = ESpudSystemState::RunningIdle;
 	PostSaveGame.Broadcast(SlotName, bSuccess);
+}
+
+void USpudSubsystem::HandleLevelLoaded(FName LevelName)
+{
+	// Defer the restore to the game thread, streaming calls happen in loading thread?
+	// However, quickly ping the state to force it to pre-load the leveldata
+	// that way the loading occurs in this thread, less latency
+	GetActiveState()->PreLoadLevelData(LevelName.ToString());
+
+	AsyncTask(ENamedThreads::GameThread, [this, LevelName]()
+		{
+			// But also add a slight delay so we get a tick in between so physics works
+			FTimerHandle H;
+			GetWorld()->GetTimerManager().SetTimer(H, [this, LevelName]()
+				{
+					PostLoadStreamLevelGameThread(LevelName);
+				}, 0.01, false);
+		});
+}
+
+void USpudSubsystem::HandleLevelUnloaded(ULevel* Level)
+{
+	UnsubscribeLevelObjectEvents(Level);
+
+	if (CurrentState != ESpudSystemState::LoadingGame)
+	{
+		// save the state, if not loading game
+		// when loading game we will unload the current level and streaming and don't want to restore the active state from that
+		// After storing, the level data is released so doesn't take up memory any more
+		StoreLevel(Level, true, false);
+	}
 }
 
 
@@ -622,20 +659,7 @@ void USpudSubsystem::PostLoadStreamLevel(int32 LinkID)
 			StreamLevel->SetShouldBeVisible(true);
 		}		
 
-		// Defer the restore to the game thread, streaming calls happen in loading thread?
-		// However, quickly ping the state to force it to pre-load the leveldata
-		// that way the loading occurs in this thread, less latency
-		GetActiveState()->PreLoadLevelData(LevelName.ToString());			
-
-		AsyncTask(ENamedThreads::GameThread, [this, LevelName]()
-        {
-			// But also add a slight delay so we get a tick in between so physics works
-			FTimerHandle H;
-			GetWorld()->GetTimerManager().SetTimer(H, [this, LevelName]()
-			{
-				PostLoadStreamLevelGameThread(LevelName);				
-			}, 0.01, false);
-        });		
+		HandleLevelLoaded(LevelName);
 	}
 	else
 	{
@@ -680,22 +704,15 @@ void USpudSubsystem::UnloadStreamLevel(FName LevelName)
 
 	if (StreamLevel)
 	{
-		PreUnloadStreamingLevel.Broadcast(LevelName);
 		ULevel* Level = StreamLevel->GetLoadedLevel();
 		if (!Level)
 		{
 			// Already unloaded
 			return;
 		}
-		UnsubscribeLevelObjectEvents(Level);
-	
-		if (CurrentState != ESpudSystemState::LoadingGame)
-		{
-			// save the state, if not loading game
-			// when loading game we will unload the current level and streaming and don't want to restore the active state from that
-			// After storing, the level data is released so doesn't take up memory any more
-			StoreLevel(Level, true, false);
-		}
+		PreUnloadStreamingLevel.Broadcast(LevelName);
+
+		HandleLevelUnloaded(Level);
 		
 		// Now unload
 		FScopeLock PendingUnloadLock(&LevelsPendingUnloadMutex);
