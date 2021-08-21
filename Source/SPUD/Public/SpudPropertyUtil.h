@@ -43,11 +43,17 @@ template <> struct SpudTypeInfo<UObject*>
 	static const ESpudStorageType EnumType = ESST_UInt32;
 	using StorageType = uint32;
 };
-// Class references are stored as a ClassID
-template <> struct SpudTypeInfo<UClass*>
+// Special case soft objects which can reference CDOs and Transactional stuff
+struct SpudSoftObjectRef {};
+template <> struct SpudTypeInfo<SpudSoftObjectRef>
 {
-	static const ESpudStorageType EnumType = ESST_String;
-	using StorageType = FString;
+	static const ESpudStorageType EnumType = ESST_SoftObject;
+};
+// Special case multicast delegates have a bit to them.
+struct SpudMulticastDelegate {};
+template <> struct SpudTypeInfo<SpudMulticastDelegate>
+{
+	static const ESpudStorageType EnumType = ESST_MulticastDelegate;
 };
 /// Now the simpler types where StorageType == input type 
 template <> const ESpudStorageType SpudTypeInfo<uint8>::EnumType = ESST_UInt8;
@@ -67,6 +73,12 @@ template <> const ESpudStorageType SpudTypeInfo<FGuid>::EnumType = ESST_Guid;
 template <> const ESpudStorageType SpudTypeInfo<FString>::EnumType = ESST_String;
 template <> const ESpudStorageType SpudTypeInfo<FName>::EnumType = ESST_Name;
 template <> const ESpudStorageType SpudTypeInfo<FText>::EnumType = ESST_Text;
+
+template<typename FieldType>
+FORCEINLINE const FieldType* ExactCastConstField(const FField* Src)
+{
+	return (Src && (Src->GetClass() == FieldType::StaticClass())) ? static_cast<const FieldType*>(Src) : nullptr;
+}
 
 /// Utility class which does all the nuts & bolts related to property persistence without actually being stateful
 /// Also none of this is exposed to Blueprints, is completely internal to C++ persistence
@@ -291,6 +303,10 @@ protected:
 										  int Depth, FSpudClassDef& ClassDef,TArray<uint32>& PropertyOffsets,
 										  FSpudClassMetadata& Meta,
 										  FArchive& Out);
+	static bool TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
+										       int Depth, FSpudClassDef& ClassDef,TArray<uint32>& PropertyOffsets,
+										       FSpudClassMetadata& Meta,
+										       FArchive& Out);
 	static FString WriteActorRefPropertyData(FObjectProperty* OProp, AActor* Actor, FPlatformTypes::uint32 PrefixID, const void* Data,
 	                                         bool bIsArrayElement, FSpudClassDef& ClassDef,
 	                                         TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
@@ -300,6 +316,9 @@ protected:
 	static bool TryWriteUObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
 	                                       int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
 	                                       FArchive& Out);
+	static bool TryWriteMulticastDelegatePropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
+										              int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
+										              FArchive& Out);
 
 	
 	template<typename ValueType>
@@ -379,7 +398,13 @@ protected:
 	static bool TryReadEnumPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
 	                                    int Depth, FArchive& In);
 	static bool TryReadClassPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
-										 int Depth, FArchive& In);
+										 const FSpudClassMetadata& Meta, int Depth, FArchive& In);
+	static bool TryReadSoftObjectPropertyData(FProperty* Prop, void* Data,
+										      const FSpudPropertyDef& StoredProperty, const RuntimeObjectMap* RuntimeObjects, ULevel* Level,
+										      const FSpudClassMetadata& Meta, int Depth, FArchive& In);
+	static bool TryReadMulticastDelegatePropertyData(FProperty* Prop, void* Data,
+	                                                const FSpudPropertyDef& StoredProperty, const RuntimeObjectMap* RuntimeObjects, ULevel* Level,
+	                                                const FSpudClassMetadata& Meta, int Depth, FArchive& In);
 	static FString ReadActorRefPropertyData(::FObjectProperty* OProp, void* Data, const RuntimeObjectMap* RuntimeObjects, ULevel* Level, FArchive& In);
 	static FString ReadNestedUObjectPropertyData(::FObjectProperty* OProp, void* Data, const RuntimeObjectMap* RuntimeObjects,
 		ULevel* Level, const FSpudClassMetadata& Meta, FArchive& In);
@@ -415,10 +440,81 @@ public:
 		WriteRaw(Value, Out);
 	}
 
+	// Attempts to resolve an actor by reference and assign it to the passed in property
+	template <typename T>
+	static bool AssignReferencedActorToProperty(const FString& ActorRefString, const RuntimeObjectMap* RuntimeObjects, ULevel* Level, const T* ObjProp, void* Data)
+	{
+		// Now we need to find the actual object
+		if (ActorRefString.IsEmpty())
+		{
+			ObjProp->SetObjectPropertyValue(Data, nullptr);
+		}
+		else if (ActorRefString.StartsWith("{"))
+		{
+			// Runtime object, identified by GUID
+			// We used the braces-format GUID for runtime objects so that it's easy to identify
+			if (RuntimeObjects)
+			{
+				FGuid Guid;
+				if (FGuid::ParseExact(ActorRefString, EGuidFormats::DigitsWithHyphensInBraces, Guid))
+				{
+					auto ObjPtr = RuntimeObjects->Find(Guid);
+					if (ObjPtr)
+					{
+						ObjProp->SetObjectPropertyValue(Data, *ObjPtr);
+					}
+					else
+					{
+						UE_LOG(LogSpudProps, Error, TEXT("Could not locate runtime object for property %s, GUID was %s"), *ObjProp->GetName(), *ActorRefString);
+						return false;
+					}			
+				}
+				else
+				{
+					UE_LOG(LogSpudProps, Error, TEXT("Error parsing GUID %s for property %s"), *ActorRefString, *ObjProp->GetName());
+					return false;
+				}
+			}
+			else
+			{
+				UE_LOG(LogSpudProps, Error, TEXT("Found property reference to runtime object %s->%s but no RuntimeObjects passed (global object?)"), *ObjProp->GetName(), *ActorRefString);
+				return false;
+			}
+		}
+		else
+		{
+			// Level object, identified by name. Level is the package
+			if (Level)
+			{
+				auto Obj = StaticFindObject(AActor::StaticClass(), Level, *ActorRefString);
+				if (Obj)
+				{
+					ObjProp->SetObjectPropertyValue(Data, Obj);
+				}
+				else
+				{
+					UE_LOG(LogSpudProps, Error, TEXT("Could not locate level object for property %s, name was %s"), *ObjProp->GetName(), *ActorRefString);
+					return false;
+				}
+			}
+			else
+			{
+				UE_LOG(LogSpudProps, Error, TEXT("Level object for property %s cannot be resolved, null parent Level"), *ObjProp->GetName());
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	/// Return whether this object is persistent. Null safe
 	static bool IsPersistentObject(UObject* Obj);
 	/// Return whether an actor is a runtime created one, or whether it was part of a loaded level. Null safe
 	static bool IsRuntimeActor(AActor* Actor);
+	/// Get an actors referencing string that can be used at load time to re-reference the actor.
+	/// Returns true if the reference if valid to use, otherwise false if the reference could not be created.
+	/// Will return true if the Actor was null, and RefStringOut will be an empty string.
+	static bool GetActorReferenceString(AActor* Actor, FString& RefStringOut);
 	/// Get the SpudGuid property value of an object, if it has one (blank otherwise)
 	static FGuid GetGuidProperty(const UObject* Obj);
 	/// Get the SpudGuid property value of an object, from a previously found property (blank if null)

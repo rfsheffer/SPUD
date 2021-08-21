@@ -88,10 +88,9 @@ enum SPUD_API ESpudStorageType // (stored as uint16 but not using enum class to 
 	ESST_String = 30,
 	ESST_Name = 31,
 	ESST_Text = 32,
-
-	ESST_ClassRef = 40,
-	ESST_SoftObject = 41,
-	ESST_MulticastDelegate = 42,
+	
+	ESST_SoftObject = 40,
+	ESST_MulticastDelegate = 41,
 
 	/// Unknown is a placeholder fallback
 	ESST_Unknown = 0x0F00,

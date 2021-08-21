@@ -415,7 +415,7 @@ void USpudSubsystem::StoreLevel(ULevel* Level, bool bRelease, bool bBlocking)
 	PostLevelStore.Broadcast(LevelName, true);
 }
 
-void USpudSubsystem::LoadGame(const FString& SlotName)
+void USpudSubsystem::LoadGame(const FString& SlotName, const bool NoReloadWorld)
 {
 	if (!ServerCheck(true))
 	{
@@ -478,10 +478,20 @@ void USpudSubsystem::LoadGame(const FString& SlotName)
 			State->RestoreGlobalObject(Pair.Value.Get(), Pair.Key);
 	}
 
-	// This is deferred, final load process will happen in PostLoadMap
 	SlotNameInProgress = SlotName;
-	UE_LOG(LogSpudSubsystem, Verbose, TEXT("(Re)loading map: %s"), *State->GetPersistentLevel());		
-	UGameplayStatics::OpenLevel(GetWorld(), FName(State->GetPersistentLevel()));
+	if(NoReloadWorld)
+	{
+		// The caller is requesting the world not be reloaded, it is up to the caller to get the world back to a clean
+		// state before calling LoadGame.
+		UE_LOG(LogSpudSubsystem, Verbose, TEXT("Continuing with loading map: %s"), *State->GetPersistentLevel());	
+		OnPostLoadMap(GetWorld());
+	}
+	else
+	{
+		// This is deferred, final load process will happen in PostLoadMap
+		UE_LOG(LogSpudSubsystem, Verbose, TEXT("(Re)loading map: %s"), *State->GetPersistentLevel());		
+		UGameplayStatics::OpenLevel(GetWorld(), FName(State->GetPersistentLevel()));
+	}
 }
 
 

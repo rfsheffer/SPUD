@@ -65,10 +65,9 @@ bool SpudPropertyUtil::IsCustomStructProperty(const FProperty* Property)
 
 bool SpudPropertyUtil::IsActorObjectProperty(const FProperty* Property)
 {
-	if (const auto OProp = CastField<FObjectProperty>(Property))
+	if (const auto OProp = ExactCastConstField<FObjectProperty>(Property))
 	{
-		if (CastField<FClassProperty>(Property) == nullptr &&
-			OProp->PropertyClass && OProp->PropertyClass->IsChildOf(AActor::StaticClass()))
+		if (OProp->PropertyClass && OProp->PropertyClass->IsChildOf(AActor::StaticClass()))
 		{
 			return true;
 		}
@@ -78,10 +77,9 @@ bool SpudPropertyUtil::IsActorObjectProperty(const FProperty* Property)
 
 bool SpudPropertyUtil::IsNonActorObjectProperty(const FProperty* Property)
 {
-	if (const auto OProp = CastField<FObjectProperty>(Property))
+	if (const auto OProp = ExactCastConstField<FObjectProperty>(Property))
 	{
-		if (CastField<FClassProperty>(Property) == nullptr &&
-			OProp->PropertyClass && !OProp->PropertyClass->IsChildOf(AActor::StaticClass()))
+		if (OProp->PropertyClass && !OProp->PropertyClass->IsChildOf(AActor::StaticClass()))
 		{
 			return true;
 		}
@@ -114,12 +112,7 @@ uint16 SpudPropertyUtil::GetPropertyDataType(const FProperty* Prop)
 		else
 			Ret = ESST_CustomStruct; // Anything else is a custom struct
 	}
-	// Check for FClassProperty before FObjectProperty as FClassProperty is derived from FObjectProperty
-	else if (CastField<FClassProperty>(ActualProp))
-	{
-		Ret = SpudTypeInfo<UClass*>::EnumType;
-	}
-	else if (CastField<FObjectProperty>(ActualProp))
+	else if (ExactCastConstField<FObjectProperty>(ActualProp))
 	{
 		// Could be:
 		// 1. An Actor ref
@@ -169,6 +162,12 @@ uint16 SpudPropertyUtil::GetPropertyDataType(const FProperty* Prop)
 			Ret = SpudTypeInfo<FText>::EnumType;
 		else if (CastField<FEnumProperty>(ActualProp))
 			Ret = SpudTypeInfo<SpudAnyEnum>::EnumType;
+		else if (CastField<FClassProperty>(ActualProp))
+			Ret = SpudTypeInfo<UObject*>::EnumType;
+		else if (CastField<FSoftObjectProperty>(ActualProp))
+			Ret = SpudTypeInfo<SpudSoftObjectRef>::EnumType;
+		else if (CastField<FMulticastDelegateProperty>(ActualProp))
+			Ret = SpudTypeInfo<SpudMulticastDelegate>::EnumType;
 	}
 
 	if (bIsArray)
@@ -338,8 +337,6 @@ bool SpudPropertyUtil::TryReadEnumPropertyData(FProperty* Prop, void* Data,
 	return false;
 }
 
-#define CLASS_PROPERTY_NULL TEXT("NULL")
-
 bool SpudPropertyUtil::TryWriteClassPropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
 													bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef,
 													TArray<uint32>& PropertyOffsets,
@@ -352,14 +349,24 @@ bool SpudPropertyUtil::TryWriteClassPropertyData(FProperty* Property, uint32 Pre
 		if (!bIsArrayElement)
 			RegisterProperty(CProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
 
-		FString classIDStr = CLASS_PROPERTY_NULL;
-		const UClass* obj = Cast<const UClass>(CProp->GetPropertyValue(Data));
-		if(obj)
-		{
-			classIDStr = obj->GetPathName();
+		uint32 ClassID;
+		FString Ret = TEXT("NULL");
+		// We already have the Actor so no need to get property value
+		const UClass* Obj = Cast<const UClass>(CProp->GetPropertyValue(Data));
+		if(Obj)
+		{		
+			// Store the class full path as an ID
+			Ret = Obj->GetPathName();
+			ClassID = Meta.FindOrAddClassIDFromName(Ret);
 		}
-		Out << classIDStr;
-		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Property, Depth), *classIDStr);
+		else // null
+		{
+			ClassID = SPUDDATA_CLASSID_NONE;
+		}
+	
+		Out << ClassID;
+		
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Property, Depth), *Ret);
 		return true;
 	}
 	return false;
@@ -367,30 +374,204 @@ bool SpudPropertyUtil::TryWriteClassPropertyData(FProperty* Property, uint32 Pre
 
 bool SpudPropertyUtil::TryReadClassPropertyData(FProperty* Prop, void* Data,
 													const FSpudPropertyDef& StoredProperty,
-													int Depth, FArchive& In)
+													const FSpudClassMetadata& Meta, int Depth, FArchive& In)
 {
 	const auto CProp = CastField<FClassProperty>(Prop);
 	if (CProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
 		// we ignore array flag since we could be processing inner
 	{
-		// Class ID is a string path
-		FString classIDStr;
-		In << classIDStr;
-
-		UClass* loadedClass;
-		if(classIDStr == CLASS_PROPERTY_NULL)
+		uint32 ClassID;
+		In << ClassID;
+		
+		FString Ret = TEXT("NULL");
+		UClass* LoadedClass = nullptr;
+		if (ClassID != SPUDDATA_CLASSID_NONE)
 		{
-			loadedClass = nullptr;
+			Ret = Meta.GetClassNameFromID(ClassID);
+			LoadedClass = StaticLoadClass(CProp->MetaClass, nullptr, *Ret);
+			if (!LoadedClass)
+			{
+				UE_LOG(LogSpudProps, Error, TEXT("Cannot restore class %s to class property. "
+												 "Either the class is missing or the class property no longer accepts this class!"), *Ret);
+			}
+		}
+
+		CProp->SetObjectPropertyValue(Data, LoadedClass);
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *Ret);
+		return true;
+	}
+	return false;
+}
+
+bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
+													bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef,
+													TArray<uint32>& PropertyOffsets,
+													FSpudClassMetadata& Meta, FArchive& Out)
+{
+	if (const auto SoftClassProp = ExactCastField<FSoftClassProperty>(Property))
+	{
+		// Class reference properties are stored as a class ClassID
+		if (!bIsArrayElement)
+			RegisterProperty(SoftClassProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+
+		uint32 ClassID;
+		FString Ret = TEXT("NULL");
+		// We already have the Actor so no need to get property value
+		const FSoftObjectPtr ObjPtr = SoftClassProp->GetPropertyValue(Data);
+		if(ObjPtr.IsValid())
+		{
+			// Store the class full path as an ID
+			Ret = ObjPtr.GetUniqueID().ToString();
+			ClassID = Meta.FindOrAddClassIDFromName(Ret);
+		}
+		else // null
+		{
+			ClassID = SPUDDATA_CLASSID_NONE;
+		}
+	
+		Out << ClassID;
+		
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Property, Depth), *Ret);
+		return true;
+	}
+	
+	if (const auto SoftObjProp = ExactCastField<FSoftObjectProperty>(Property))
+	{
+		// Class reference properties are stored as a class ClassID
+		if (!bIsArrayElement)
+			RegisterProperty(SoftObjProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+
+		// Flags: 0 - Not Saved, 1 - NULL the soft reference, 2 - Asset reference, 3 - Actor reference
+		// Only flags 2 and 3 have a string serialized
+		uint8 SoftObjectFlag = 0;
+		FString Ret;
+		
+		const FSoftObjectPtr ObjPtr = SoftObjProp->GetPropertyValue(Data);
+		const FSoftObjectPath ObjPath = ObjPtr.ToSoftObjectPath();
+		if(ObjPath.IsNull())
+		{
+			// Just null, we will null on restore
+			SoftObjectFlag = 1;
+		}
+		else if(ObjPath.IsAsset())
+		{
+			// We just save off the asset path to set it once we reload
+			SoftObjectFlag = 2;
+			Ret = ObjPath.GetAssetPathString();
 		}
 		else
 		{
-			loadedClass = StaticLoadClass(CProp->MetaClass, nullptr, *classIDStr);
+			// Try to resolve the live actor being referenced. We don't support referencing anything else at this time.
+			AActor* LiveActor = Cast<AActor>(ObjPtr.Get());
+			if(LiveActor)
+			{
+				if(GetActorReferenceString(LiveActor, Ret))
+				{
+					// Third style
+					SoftObjectFlag = 3;
+				}
+				else
+				{
+					UE_LOG(LogSpudProps, Error, TEXT("Soft Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
+					*ClassDef.ClassName, *SoftObjProp->GetName(), *LiveActor->GetName());
+				}
+			}
+			else if(ObjPtr.Get())
+			{
+				UE_LOG(LogSpudProps, Warning, TEXT("Unable to save soft object reference to: %s"), *ObjPath.ToString());
+			}
+			else
+			{
+				// Null on restore, we can at least support that.
+				SoftObjectFlag = 1;
+			}
 		}
 
-		CProp->SetObjectPropertyValue(Data, loadedClass);
-		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *classIDStr);
+		Out << SoftObjectFlag;
+		
+		if(SoftObjectFlag)
+		{
+			// Serialize the identifying string in the case of a valid result
+			if(SoftObjectFlag > 1)
+			{
+				Out << Ret;
+			}
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Property, Depth), Ret.IsEmpty() ? TEXT("NULL") : *Ret);
+		}
+		
 		return true;
 	}
+
+	return false;
+}
+
+bool SpudPropertyUtil::TryReadSoftObjectPropertyData(FProperty* Prop, void* Data,
+	const FSpudPropertyDef& StoredProperty, const RuntimeObjectMap* RuntimeObjects, ULevel* Level,
+	const FSpudClassMetadata& Meta, int Depth, FArchive& In)
+{
+	const auto SoftClassProp = ExactCastField<FSoftClassProperty>(Prop);
+	if (SoftClassProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
+		// we ignore array flag since we could be processing inner
+	{
+		uint32 ClassID;
+		In << ClassID;
+		
+		FString Ret = TEXT("NULL");
+		UClass* LoadedClass = nullptr;
+		if (ClassID != SPUDDATA_CLASSID_NONE)
+		{
+			Ret = Meta.GetClassNameFromID(ClassID);
+			LoadedClass = StaticLoadClass(SoftClassProp->MetaClass, nullptr, *Ret);
+			if (!LoadedClass)
+			{
+				UE_LOG(LogSpudProps, Error, TEXT("Cannot restore class %s to class property. "
+												"Either the class is missing or the class property no longer accepts this class!"), *Ret);
+			}
+		}
+
+		SoftClassProp->SetObjectPropertyValue(Data, LoadedClass);
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *Ret);
+		return true;
+	}
+
+	const auto SoftObjProp = ExactCastField<FSoftObjectProperty>(Prop);
+	if (SoftObjProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
+		// we ignore array flag since we could be processing inner
+	{
+		uint8 SoftObjectFlag;
+		In << SoftObjectFlag;
+
+		if(SoftObjectFlag == 1)
+		{
+			// NULL it
+			const FSoftObjectPtr ptr;
+			SoftObjProp->SetPropertyValue(Data, ptr);
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = NULL"), *GetLogPrefix(Prop, Depth));
+		}
+		else if(SoftObjectFlag == 2)
+		{
+			// Set the asset reference string
+			FString AssetPath;
+			In << AssetPath;
+			const FSoftObjectPtr ptr = FSoftObjectPtr(FSoftObjectPath(AssetPath));
+			SoftObjProp->SetPropertyValue(Data, ptr);
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *AssetPath);
+		}
+		else if(SoftObjectFlag == 3)
+		{
+			// Set the actor if we can resolve it
+			FString ActorRefString;
+			In << ActorRefString;
+
+			if(AssignReferencedActorToProperty(ActorRefString, RuntimeObjects, Level, SoftObjProp, Data))
+			{
+				UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ActorRefString);
+			}
+		}
+
+		return true;
+	}
+	
 	return false;
 }
 
@@ -402,43 +583,11 @@ FString SpudPropertyUtil::WriteActorRefPropertyData(FObjectProperty* OProp, AAct
 		RegisterProperty(OProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
 
 	FString RefString;
-	// We already have the Actor so no need to get property value
-	if (Actor)
+	if(!GetActorReferenceString(Actor, RefString))
 	{
-		if (IsRuntimeActor(Actor))
-		{
-			// For runtime objects, we need GUID
-			auto GuidProperty = FindGuidProperty(Actor);
-			if (!GuidProperty)
-			{
-				UE_LOG(LogSpudProps, Error, TEXT("Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
-                    *ClassDef.ClassName, *OProp->GetName(), *Actor->GetName());
-				// This essentially becomes a null reference
-				RefString = FString();				
-			}
-			else
-			{
-				FGuid Guid = GetGuidProperty(Actor, GuidProperty);
-				if (!Guid.IsValid())
-				{
-					// We automatically generate a Guid for any referenced object if it doesn't have one already
-					Guid = FGuid::NewGuid();
-					SetGuidProperty(Actor, GuidProperty, Guid);
-				}
-				// We write the GUID as {00000000-0000-0000-0000-000000000000} format so that it's easy to detect when loading
-				// vs an object name (first char is open brace)
-				RefString = Guid.ToString(EGuidFormats::DigitsWithHyphensInBraces);
-			}
-		}
-		else
-		{
-			// References to level actors uses their unique name (so no need for a SpudGuid property)
-			RefString = GetLevelActorName(Actor);
-		}
-			
+		UE_LOG(LogSpudProps, Error, TEXT("Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
+					*ClassDef.ClassName, *OProp->GetName(), *Actor->GetName());
 	}
-	else
-		RefString = FString();
 	
 	Out << RefString;
 	return RefString;
@@ -473,7 +622,7 @@ bool SpudPropertyUtil::TryWriteUObjectPropertyData(FProperty* Property, uint32 P
 	bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
 	FSpudClassMetadata& Meta, FArchive& Out)
 {
-	if (const auto OProp = CastField<FObjectProperty>(Property))
+	if (const auto OProp = ExactCastField<FObjectProperty>(Property))
 	{
 		const auto Obj = OProp->GetObjectPropertyValue(Data);
 
@@ -497,6 +646,19 @@ bool SpudPropertyUtil::TryWriteUObjectPropertyData(FProperty* Property, uint32 P
 	return false;
 }
 
+bool SpudPropertyUtil::TryWriteMulticastDelegatePropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
+	bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+	FSpudClassMetadata& Meta, FArchive& Out)
+{
+	return false;
+}
+
+bool SpudPropertyUtil::TryReadMulticastDelegatePropertyData(FProperty* Prop, void* Data,
+	const FSpudPropertyDef& StoredProperty, const RuntimeObjectMap* RuntimeObjects, ULevel* Level,
+	const FSpudClassMetadata& Meta, int Depth, FArchive& In)
+{
+	return false;
+}
 
 FString SpudPropertyUtil::ReadActorRefPropertyData(FObjectProperty* OProp, void* Data,
                                                          const RuntimeObjectMap* RuntimeObjects,
@@ -505,60 +667,7 @@ FString SpudPropertyUtil::ReadActorRefPropertyData(FObjectProperty* OProp, void*
 {
 	FString RefString;
 	In << RefString;
-
-	// Now we need to find the actual object
-	if (RefString.IsEmpty())
-	{
-		OProp->SetObjectPropertyValue(Data, nullptr);
-	}
-	else if (RefString.StartsWith("{"))
-	{
-		// Runtime object, identified by GUID
-		// We used the braces-format GUID for runtime objects so that it's easy to identify
-		if (RuntimeObjects)
-		{
-			FGuid Guid;
-			if (FGuid::ParseExact(RefString, EGuidFormats::DigitsWithHyphensInBraces, Guid))
-			{
-				auto ObjPtr = RuntimeObjects->Find(Guid);
-				if (ObjPtr)
-				{
-					OProp->SetObjectPropertyValue(Data, *ObjPtr);
-				}
-				else
-				{
-					UE_LOG(LogSpudProps, Error, TEXT("Could not locate runtime object for property %s, GUID was %s"), *OProp->GetName(), *RefString);	
-				}			
-			}
-			else
-			{
-				UE_LOG(LogSpudProps, Error, TEXT("Error parsing GUID %s for property %s"), *RefString, *OProp->GetName());
-			}
-		}
-		else
-			UE_LOG(LogSpudProps, Error, TEXT("Found property reference to runtime object %s->%s but no RuntimeObjects passed (global object?)"), *OProp->GetName(), *RefString);
-	}
-	else
-	{
-		// Level object, identified by name. Level is the package
-		if (Level)
-		{
-			auto Obj = StaticFindObject(AActor::StaticClass(), Level, *RefString);
-			if (Obj)
-			{
-				OProp->SetObjectPropertyValue(Data, Obj);
-			}
-			else
-			{
-				UE_LOG(LogSpudProps, Error, TEXT("Could not locate level object for property %s, name was %s"), *OProp->GetName(), *RefString);	
-			}
-		}
-		else
-		{
-			UE_LOG(LogSpudProps, Error, TEXT("Level object for property %s cannot be resolved, null parent Level"), *OProp->GetName());	
-		}
-		
-	}
+	AssignReferencedActorToProperty(RefString, RuntimeObjects, Level, OProp, Data);
 	return RefString;
 }
 
@@ -610,7 +719,7 @@ bool SpudPropertyUtil::TryReadUObjectPropertyData(FProperty* Prop, void* Data,
 	const FSpudPropertyDef& StoredProperty, const RuntimeObjectMap* RuntimeObjects, ULevel* Level,
 	const FSpudClassMetadata& Meta, int Depth, FArchive& In)
 {
-	auto OProp = CastField<FObjectProperty>(Prop);
+	auto OProp = ExactCastField<FObjectProperty>(Prop);
 	if (OProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true)) // we ignore array flag since we could be processing inner
 	{
 
@@ -725,9 +834,10 @@ void SpudPropertyUtil::StoreContainerProperty(FProperty* Property, const UObject
             TryWritePropertyData<FNameProperty,		FName>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
             TryWritePropertyData<FTextProperty,		FText>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
             TryWriteEnumPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            // Class properties always before UObject
+            TryWriteUObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
             TryWriteClassPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWriteUObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out);;
+            TryWriteSoftObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
+            TryWriteMulticastDelegatePropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out);
 		
 	}
 	if (!bUpdateOK)
@@ -839,7 +949,7 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 			TryReadPropertyData<FNameProperty,		FName>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
 			TryReadPropertyData<FTextProperty,		FText>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
 			TryReadEnumPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadClassPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn);
+			TryReadClassPropertyData(Property, DataPtr, StoredProperty, Meta, Depth, DataIn);
 		}
 			
 		if (!bUpdateOK)
@@ -849,7 +959,9 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 			ULevel* Level = nullptr;
 			if (auto Actor = Cast<AActor>(RootObject))
 				Level = Actor->GetLevel();
-			bUpdateOK = TryReadUObjectPropertyData(Property, DataPtr, StoredProperty, RuntimeObjects, Level, Meta, Depth, DataIn);
+			bUpdateOK = TryReadUObjectPropertyData(Property, DataPtr, StoredProperty, RuntimeObjects, Level, Meta, Depth, DataIn) ||
+						TryReadSoftObjectPropertyData(Property, DataPtr, StoredProperty, RuntimeObjects, Level, Meta, Depth, DataIn) ||
+						TryReadMulticastDelegatePropertyData(Property, DataPtr, StoredProperty, RuntimeObjects, Level, Meta, Depth, DataIn);
 		}
 		
 	}
@@ -990,6 +1102,47 @@ bool SpudPropertyUtil::IsRuntimeActor(AActor* Actor)
 	
 
 	return Ret;
+}
+
+bool SpudPropertyUtil::GetActorReferenceString(AActor* Actor, FString& RefStringOut)
+{
+	// We already have the Actor so no need to get property value
+	if (Actor)
+	{
+		if (IsRuntimeActor(Actor))
+		{
+			// For runtime objects, we need GUID
+			auto GuidProperty = FindGuidProperty(Actor);
+			if (!GuidProperty)
+			{
+				RefStringOut.Empty();
+				return false;
+			}
+			else
+			{
+				FGuid Guid = GetGuidProperty(Actor, GuidProperty);
+				if (!Guid.IsValid())
+				{
+					// We automatically generate a Guid for any referenced object if it doesn't have one already
+					Guid = FGuid::NewGuid();
+					SetGuidProperty(Actor, GuidProperty, Guid);
+				}
+				// We write the GUID as {00000000-0000-0000-0000-000000000000} format so that it's easy to detect when loading
+				// vs an object name (first char is open brace)
+				RefStringOut = Guid.ToString(EGuidFormats::DigitsWithHyphensInBraces);
+			}
+		}
+		else
+		{
+			// References to level actors uses their unique name (so no need for a SpudGuid property)
+			RefStringOut = GetLevelActorName(Actor);
+		}
+	}
+	else
+	{
+		RefStringOut.Empty();
+	}
+	return true;
 }
 
 bool SpudPropertyUtil::IsPersistentObject(UObject* Obj)
