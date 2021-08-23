@@ -174,8 +174,6 @@ uint16 SpudPropertyUtil::GetPropertyDataType(const FProperty* Prop)
 			Ret = SpudTypeInfo<SpudAnyEnum>::EnumType;
 		else if (CastField<FClassProperty>(ActualProp))
 			Ret = SpudTypeInfo<UObject*>::EnumType;
-		else if (CastField<FSoftObjectProperty>(ActualProp))
-			Ret = SpudTypeInfo<SpudSoftObjectRef>::EnumType;
 		else if (CastField<FMulticastDelegateProperty>(ActualProp))
 			Ret = SpudTypeInfo<SpudMulticastDelegate>::EnumType;
 	}
@@ -342,72 +340,6 @@ bool SpudPropertyUtil::TryReadEnumPropertyData(FProperty* Prop, void* Data,
 		// Enums as 16-bit numbers, that should be large enough!
 		const uint16 Val = ReadEnumPropertyData(EProp, Data, In);
 		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ToString(Val));
-		return true;
-	}
-	return false;
-}
-
-bool SpudPropertyUtil::TryWriteClassPropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
-													bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef,
-													TArray<uint32>& PropertyOffsets,
-													FSpudClassMetadata& Meta, FArchive& Out)
-{
-	const auto CProp = CastField<FClassProperty>(Property);
-	if (CProp)
-	{
-		// Class reference properties are stored as a class ClassID
-		if (!bIsArrayElement)
-			RegisterProperty(CProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
-
-		uint32 ClassID;
-		FString Ret = TEXT("NULL");
-		// We already have the Actor so no need to get property value
-		const UClass* Obj = Cast<const UClass>(CProp->GetPropertyValue(Data));
-		if(Obj)
-		{		
-			// Store the class full path as an ID
-			Ret = Obj->GetPathName();
-			ClassID = Meta.FindOrAddClassIDFromName(Ret);
-		}
-		else // null
-		{
-			ClassID = SPUDDATA_CLASSID_NONE;
-		}
-	
-		Out << ClassID;
-		
-		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Property, Depth), *Ret);
-		return true;
-	}
-	return false;
-}
-
-bool SpudPropertyUtil::TryReadClassPropertyData(FProperty* Prop, void* Data,
-													const FSpudPropertyDef& StoredProperty,
-													const FSpudClassMetadata& Meta, int Depth, FArchive& In)
-{
-	const auto CProp = CastField<FClassProperty>(Prop);
-	if (CProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
-		// we ignore array flag since we could be processing inner
-	{
-		uint32 ClassID;
-		In << ClassID;
-		
-		FString Ret = TEXT("NULL");
-		UClass* LoadedClass = nullptr;
-		if (ClassID != SPUDDATA_CLASSID_NONE)
-		{
-			Ret = Meta.GetClassNameFromID(ClassID);
-			LoadedClass = StaticLoadClass(CProp->MetaClass, nullptr, *Ret);
-			if (!LoadedClass)
-			{
-				UE_LOG(LogSpudProps, Error, TEXT("Cannot restore class %s to class property. "
-												 "Either the class is missing or the class property no longer accepts this class!"), *Ret);
-			}
-		}
-
-		CProp->SetObjectPropertyValue(Data, LoadedClass);
-		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *Ret);
 		return true;
 	}
 	return false;
@@ -655,7 +587,7 @@ bool SpudPropertyUtil::TryWriteUObjectPropertyData(FProperty* Property, uint32 P
                                                    bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
                                                    FSpudClassMetadata& Meta, FArchive& Out)
 {
-	if (const auto OProp = ExactCastField<FObjectProperty>(Property))
+	if (const auto OProp = CastField<FObjectProperty>(Property))
 	{
 		const auto Obj = OProp->GetObjectPropertyValue(Data);
 
@@ -920,7 +852,7 @@ bool SpudPropertyUtil::TryReadUObjectPropertyData(FProperty* Prop, void* Data,
                                                   const FSpudPropertyDef& StoredProperty, const RuntimeObjectMap* RuntimeObjects, ULevel* Level,
                                                   const FSpudClassMetadata& Meta, int Depth, FArchive& In)
 {
-	auto OProp = ExactCastField<FObjectProperty>(Prop);
+	auto OProp = CastField<FObjectProperty>(Prop);
 	if (OProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true)) // we ignore array flag since we could be processing inner
 	{
 
@@ -1041,7 +973,6 @@ void SpudPropertyUtil::StoreContainerProperty(FProperty* Property, const UObject
             TryWritePropertyData<FTextProperty,		FText>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
             TryWriteEnumPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
             TryWriteUObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWriteClassPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
             TryWriteSoftObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
             TryWriteMulticastDelegatePropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out);
 		
@@ -1154,8 +1085,7 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 			TryReadPropertyData<FStrProperty,		FString>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
 			TryReadPropertyData<FNameProperty,		FName>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
 			TryReadPropertyData<FTextProperty,		FText>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadEnumPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadClassPropertyData(Property, DataPtr, StoredProperty, Meta, Depth, DataIn);
+			TryReadEnumPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn);
 		}
 			
 		if (!bUpdateOK)

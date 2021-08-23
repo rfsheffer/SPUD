@@ -397,8 +397,6 @@ protected:
 	static uint16 ReadEnumPropertyData(FEnumProperty* EProp, void* Data, FArchive& In);
 	static bool TryReadEnumPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
 	                                    int Depth, FArchive& In);
-	static bool TryReadClassPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
-										 const FSpudClassMetadata& Meta, int Depth, FArchive& In);
 	static bool TryReadSoftObjectPropertyData(FProperty* Prop, void* Data,
 										      const FSpudPropertyDef& StoredProperty, const RuntimeObjectMap* RuntimeObjects, ULevel* Level,
 										      const FSpudClassMetadata& Meta, int Depth, FArchive& In);
