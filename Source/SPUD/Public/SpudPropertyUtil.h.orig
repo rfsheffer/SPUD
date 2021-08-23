@@ -43,17 +43,25 @@ template <> struct SpudTypeInfo<UObject*>
 	static const ESpudStorageType EnumType = ESST_UInt32;
 	using StorageType = uint32;
 };
-// TSubclassOfs are stored as a ClassID
-template <> struct SpudTypeInfo<UClass*>
+<<<<<<< HEAD
+// Special case soft objects which can reference CDOs and Transactional stuff
+struct SpudSoftObjectRef {};
+template <> struct SpudTypeInfo<SpudSoftObjectRef>
 {
-	static const ESpudStorageType EnumType = ESST_UInt32;
-	using StorageType = uint32;
+	static const ESpudStorageType EnumType = ESST_SoftObject;
 };
 // Special case multicast delegates have a bit to them.
 struct SpudMulticastDelegate {};
 template <> struct SpudTypeInfo<SpudMulticastDelegate>
 {
 	static const ESpudStorageType EnumType = ESST_MulticastDelegate;
+=======
+// TSubclassOfs are stored as a ClassID
+template <> struct SpudTypeInfo<UClass*>
+{
+	static const ESpudStorageType EnumType = ESST_UInt32;
+	using StorageType = uint32;
+>>>>>>> sinbad/master
 };
 /// Now the simpler types where StorageType == input type 
 template <> const ESpudStorageType SpudTypeInfo<uint8>::EnumType = ESST_UInt8;
@@ -300,6 +308,10 @@ protected:
 	                                     int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
 	                                     FSpudClassMetadata& Meta,
 	                                     FArchive& Out);
+	static bool TryWriteClassPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
+										  int Depth, FSpudClassDef& ClassDef,TArray<uint32>& PropertyOffsets,
+										  FSpudClassMetadata& Meta,
+										  FArchive& Out);
 	static bool TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
 										       int Depth, FSpudClassDef& ClassDef,TArray<uint32>& PropertyOffsets,
 										       FSpudClassMetadata& Meta,
@@ -314,11 +326,16 @@ protected:
 											bool bIsArrayElement, FSpudClassDef& ClassDef,
 											TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
 	static bool TryWriteUObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
+<<<<<<< HEAD
 	                                       int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
 	                                       FArchive& Out);
 	static bool TryWriteMulticastDelegatePropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
-	                                       int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
-	                                       FArchive& Out);
+										              int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
+										              FArchive& Out);
+=======
+	                                        int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
+	                                        FArchive& Out);
+>>>>>>> sinbad/master
 
 	
 	template<typename ValueType>

@@ -43,11 +43,11 @@ template <> struct SpudTypeInfo<UObject*>
 	static const ESpudStorageType EnumType = ESST_UInt32;
 	using StorageType = uint32;
 };
-// TSubclassOfs are stored as a ClassID
-template <> struct SpudTypeInfo<UClass*>
+// Special case soft objects which can reference CDOs and Transactional stuff
+struct SpudSoftObjectRef {};
+template <> struct SpudTypeInfo<SpudSoftObjectRef>
 {
-	static const ESpudStorageType EnumType = ESST_UInt32;
-	using StorageType = uint32;
+	static const ESpudStorageType EnumType = ESST_SoftObject;
 };
 // Special case multicast delegates have a bit to them.
 struct SpudMulticastDelegate {};
@@ -169,8 +169,7 @@ public:
 	static bool IsActorObjectProperty(const FProperty* Property);
 	/// Whether a property is an object reference, but not an actor (stored nested like structs on the assumption it always exists)
 	static bool IsNonActorObjectProperty(const FProperty* Property);
-	// Whether a property is a TSubclassOf property
-	static bool IsSubclassOfProperty(const FProperty* Property);
+
 	static uint16 GetPropertyDataType(const FProperty* Prop);
 
 	class StoredMatchesRuntimePropertyVisitor : public SpudPropertyUtil::PropertyVisitor
@@ -300,6 +299,10 @@ protected:
 	                                     int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
 	                                     FSpudClassMetadata& Meta,
 	                                     FArchive& Out);
+	static bool TryWriteClassPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
+										  int Depth, FSpudClassDef& ClassDef,TArray<uint32>& PropertyOffsets,
+										  FSpudClassMetadata& Meta,
+										  FArchive& Out);
 	static bool TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
 										       int Depth, FSpudClassDef& ClassDef,TArray<uint32>& PropertyOffsets,
 										       FSpudClassMetadata& Meta,
@@ -310,15 +313,12 @@ protected:
 	static FString WriteNestedUObjectPropertyData(FObjectProperty* OProp, UObject* UObj, FPlatformTypes::uint32 PrefixID, const void* Data,
 											bool bIsArrayElement, FSpudClassDef& ClassDef,
 											TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
-	static FString WriteSubclassOfPropertyData(FClassProperty* CProp, UClass* Class, uint32 PrefixID, const void* Data,
-											bool bIsArrayElement, FSpudClassDef& ClassDef,
-											TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
 	static bool TryWriteUObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
 	                                       int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
 	                                       FArchive& Out);
 	static bool TryWriteMulticastDelegatePropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
-	                                       int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
-	                                       FArchive& Out);
+										              int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
+										              FArchive& Out);
 
 	
 	template<typename ValueType>
@@ -407,8 +407,6 @@ protected:
 	                                                const FSpudClassMetadata& Meta, int Depth, FArchive& In);
 	static FString ReadActorRefPropertyData(::FObjectProperty* OProp, void* Data, const RuntimeObjectMap* RuntimeObjects, ULevel* Level, FArchive& In);
 	static FString ReadNestedUObjectPropertyData(::FObjectProperty* OProp, void* Data, const RuntimeObjectMap* RuntimeObjects,
-		ULevel* Level, const FSpudClassMetadata& Meta, FArchive& In);
-	static FString ReadSubclassOfPropertyData(::FObjectProperty* OProp, void* Data, const RuntimeObjectMap* RuntimeObjects,
 		ULevel* Level, const FSpudClassMetadata& Meta, FArchive& In);
 	static bool TryReadUObjectPropertyData(::FProperty* Prop, void* Data, const ::FSpudPropertyDef& StoredProperty,
 	                                        const RuntimeObjectMap* RuntimeObjects,
