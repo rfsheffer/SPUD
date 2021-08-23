@@ -440,70 +440,78 @@ public:
 		WriteRaw(Value, Out);
 	}
 
+	static AActor* GetReferencedActor(const FString& ActorRefString, const RuntimeObjectMap* RuntimeObjects, ULevel* Level, const FString& ReferencingPropertyName)
+	{
+		AActor* FoundActor = nullptr;
+		// Now we need to find the actual object
+		if(!ActorRefString.IsEmpty())
+		{
+			if (ActorRefString.StartsWith("{"))
+			{
+				// Runtime object, identified by GUID
+				// We used the braces-format GUID for runtime objects so that it's easy to identify
+				if (RuntimeObjects)
+				{
+					FGuid Guid;
+					if (FGuid::ParseExact(ActorRefString, EGuidFormats::DigitsWithHyphensInBraces, Guid))
+					{
+						auto ObjPtr = RuntimeObjects->Find(Guid);
+						if (ObjPtr)
+						{
+							FoundActor = CastChecked<AActor>(*ObjPtr);
+						}
+						else
+						{
+							UE_LOG(LogSpudProps, Error, TEXT("Could not locate runtime object for property %s, GUID was %s"), *ReferencingPropertyName, *ActorRefString);
+						}			
+					}
+					else
+					{
+						UE_LOG(LogSpudProps, Error, TEXT("Error parsing GUID %s for property %s"), *ActorRefString, *ReferencingPropertyName);
+					}
+				}
+				else
+				{
+					UE_LOG(LogSpudProps, Error, TEXT("Found property reference to runtime object %s->%s but no RuntimeObjects passed (global object?)"), *ReferencingPropertyName, *ActorRefString);
+				}
+			}
+			else
+			{
+				// Level object, identified by name. Level is the package
+				if (Level)
+				{
+					auto Obj = StaticFindObject(AActor::StaticClass(), Level, *ActorRefString);
+					if (Obj)
+					{
+						FoundActor = CastChecked<AActor>(Obj);
+					}
+					else
+					{
+						UE_LOG(LogSpudProps, Error, TEXT("Could not locate level object for property %s, name was %s"), *ReferencingPropertyName, *ActorRefString);
+					}
+				}
+				else
+				{
+					UE_LOG(LogSpudProps, Error, TEXT("Level object for property %s cannot be resolved, null parent Level"), *ReferencingPropertyName);
+				}
+			}
+		}
+
+		return FoundActor;
+	}
+
 	// Attempts to resolve an actor by reference and assign it to the passed in property
 	template <typename T>
 	static bool AssignReferencedActorToProperty(const FString& ActorRefString, const RuntimeObjectMap* RuntimeObjects, ULevel* Level, const T* ObjProp, void* Data)
 	{
 		// Now we need to find the actual object
-		if (ActorRefString.IsEmpty())
+		AActor* foundActor = nullptr;
+		if (!ActorRefString.IsEmpty())
 		{
-			ObjProp->SetObjectPropertyValue(Data, nullptr);
-		}
-		else if (ActorRefString.StartsWith("{"))
-		{
-			// Runtime object, identified by GUID
-			// We used the braces-format GUID for runtime objects so that it's easy to identify
-			if (RuntimeObjects)
-			{
-				FGuid Guid;
-				if (FGuid::ParseExact(ActorRefString, EGuidFormats::DigitsWithHyphensInBraces, Guid))
-				{
-					auto ObjPtr = RuntimeObjects->Find(Guid);
-					if (ObjPtr)
-					{
-						ObjProp->SetObjectPropertyValue(Data, *ObjPtr);
-					}
-					else
-					{
-						UE_LOG(LogSpudProps, Error, TEXT("Could not locate runtime object for property %s, GUID was %s"), *ObjProp->GetName(), *ActorRefString);
-						return false;
-					}			
-				}
-				else
-				{
-					UE_LOG(LogSpudProps, Error, TEXT("Error parsing GUID %s for property %s"), *ActorRefString, *ObjProp->GetName());
-					return false;
-				}
-			}
-			else
-			{
-				UE_LOG(LogSpudProps, Error, TEXT("Found property reference to runtime object %s->%s but no RuntimeObjects passed (global object?)"), *ObjProp->GetName(), *ActorRefString);
-				return false;
-			}
-		}
-		else
-		{
-			// Level object, identified by name. Level is the package
-			if (Level)
-			{
-				auto Obj = StaticFindObject(AActor::StaticClass(), Level, *ActorRefString);
-				if (Obj)
-				{
-					ObjProp->SetObjectPropertyValue(Data, Obj);
-				}
-				else
-				{
-					UE_LOG(LogSpudProps, Error, TEXT("Could not locate level object for property %s, name was %s"), *ObjProp->GetName(), *ActorRefString);
-					return false;
-				}
-			}
-			else
-			{
-				UE_LOG(LogSpudProps, Error, TEXT("Level object for property %s cannot be resolved, null parent Level"), *ObjProp->GetName());
-				return false;
-			}
+			foundActor = GetReferencedActor(ActorRefString, RuntimeObjects, Level, ObjProp->GetName());
 		}
 
+		ObjProp->SetObjectPropertyValue(Data, foundActor);
 		return true;
 	}
 

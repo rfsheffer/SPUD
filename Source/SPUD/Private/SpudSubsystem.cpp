@@ -483,7 +483,8 @@ void USpudSubsystem::LoadGame(const FString& SlotName, const bool NoReloadWorld)
 	{
 		// The caller is requesting the world not be reloaded, it is up to the caller to get the world back to a clean
 		// state before calling LoadGame.
-		UE_LOG(LogSpudSubsystem, Verbose, TEXT("Continuing with loading map: %s"), *State->GetPersistentLevel());	
+		UE_LOG(LogSpudSubsystem, Verbose, TEXT("Continuing with loading map: %s"), *State->GetPersistentLevel());
+		UnsubscribeLevelObjectEvents(GetWorld()->GetCurrentLevel());
 		OnPostLoadMap(GetWorld());
 	}
 	else

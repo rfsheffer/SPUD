@@ -650,6 +650,97 @@ bool SpudPropertyUtil::TryWriteMulticastDelegatePropertyData(FProperty* Property
 	bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
 	FSpudClassMetadata& Meta, FArchive& Out)
 {
+	if (const auto MDProp = CastField<FMulticastDelegateProperty>(Property))
+	{
+		if (!bIsArrayElement)
+			RegisterProperty(MDProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+
+		FString SriptDelegateDesc;
+		const FMulticastScriptDelegate* scriptDelegate = MDProp->GetMulticastDelegate(Data);
+		if(scriptDelegate)
+		{
+			// MC delegates are kinda closes but we have this ToString which describes the function name we need to store
+			// in the object, so we use that in corelation with the GetObject
+			SriptDelegateDesc = scriptDelegate->ToString<UObject>();
+			if(SriptDelegateDesc != TEXT( "<Unbound>" ))
+			{
+				// Unreachables we will just call NULLs (cannot be saved)
+				TArray< UObject* > BoundObjects = scriptDelegate->GetAllObjectsEvenIfUnreachable();
+
+				TArray<TPair<FString, FString>> ObjRefNameToFunction;
+				
+				// Chop off the array brackets
+				FString BindingsDesc = SriptDelegateDesc.Mid(1, SriptDelegateDesc.Len() - 2);
+				
+				TCHAR *ContextStr = nullptr;
+				TCHAR *BindingsStr = FCString::Strtok(BindingsDesc.GetCharArray().GetData(), TEXT(","), &ContextStr);
+
+				int32 CurObject = 0;
+				while (BindingsStr && BoundObjects.IsValidIndex(CurObject))
+				{
+					if(BoundObjects[CurObject])
+					{
+						AActor* BoundActor = Cast<AActor>(BoundObjects[CurObject]);
+						if(BoundActor)
+						{
+							FString ObjBindingStr = BindingsStr;
+							ObjBindingStr.TrimStartAndEndInline();
+
+							FString FunctionName;
+							ObjBindingStr.Split(TEXT("."), nullptr, &FunctionName, ESearchCase::IgnoreCase, ESearchDir::FromEnd);
+
+							if(!FunctionName.IsEmpty())
+							{
+								FString RefString;
+								if(GetActorReferenceString(BoundActor, RefString))
+								{
+									ObjRefNameToFunction.Emplace(RefString, FunctionName);
+								}
+								else
+								{
+									UE_LOG(LogSpudProps, Error, TEXT("Multicast Delegate Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
+												*ClassDef.ClassName, *MDProp->GetName(), *BoundActor->GetName());
+								}
+							}
+						}
+						else
+						{
+							UE_LOG(LogSpudProps, Verbose, TEXT("Unable to save Multicast Delegate binding to non-actor object %s"), *BoundObjects[CurObject]->GetPathName());
+						}
+					}
+					
+					BindingsStr = FCString::Strtok(nullptr, TEXT(","), &ContextStr);
+					++CurObject;
+				}
+
+				// Now output all of the bindings we should be able to rebind when a restore happens
+				int32 NumBindings = ObjRefNameToFunction.Num();
+				Out << NumBindings;
+
+				for(TPair<FString, FString>& bindRef : ObjRefNameToFunction)
+				{
+					Out << bindRef.Key;
+					Out << bindRef.Value;
+				}
+			}
+			else
+			{
+				// Nothing is bound, zero :)
+				int32 NumBindings = 0;
+				Out << NumBindings;
+			}
+		}
+		else
+		{
+			int32 NumBindings = 0;
+			Out << NumBindings;
+			SriptDelegateDesc = TEXT( "<Unbound>" );
+		}
+
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(MDProp, Depth), *SriptDelegateDesc);
+		return true;
+	}
+	
 	return false;
 }
 
@@ -657,6 +748,41 @@ bool SpudPropertyUtil::TryReadMulticastDelegatePropertyData(FProperty* Prop, voi
 	const FSpudPropertyDef& StoredProperty, const RuntimeObjectMap* RuntimeObjects, ULevel* Level,
 	const FSpudClassMetadata& Meta, int Depth, FArchive& In)
 {
+	if (const auto MDProp = CastField<FMulticastDelegateProperty>(Prop))
+	{
+		FMulticastScriptDelegate ScriptDelegateOut;
+		
+		int32 NumBoundActors;
+		In << NumBoundActors;
+
+		FString actorRefName;
+		FString actorFuncName;
+		for(int32 BoundActorIndex = 0; BoundActorIndex < NumBoundActors; ++BoundActorIndex)
+		{
+			In << actorRefName;
+			In << actorFuncName;
+
+			AActor* BoundActor = GetReferencedActor(actorRefName, RuntimeObjects, Level, MDProp->GetName());
+			if(BoundActor)
+			{
+				TScriptDelegate<FWeakObjectPtr> DelegateIn;
+				DelegateIn.BindUFunction(BoundActor, *actorFuncName);
+				ScriptDelegateOut.Add(DelegateIn);
+			}
+		}
+
+		MDProp->SetMulticastDelegate(Data, ScriptDelegateOut);
+		// For debug and development output the more informative result, otherwise give a general idea of what was output
+		// because the ToString has a bunch of iteration and string appending which we can bypass the expense.
+#if UE_BUILD_DEBUG || UE_BUILD_DEVELOPMENT
+		const FString SriptDelegateDesc = ScriptDelegateOut.ToString<UObject>();
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *SriptDelegateDesc);
+#else
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = Restored %d bound actors"), *GetLogPrefix(Prop, Depth), NumBoundActors);
+#endif
+		return true;
+	}
+	
 	return false;
 }
 
