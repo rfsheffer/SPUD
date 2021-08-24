@@ -100,7 +100,8 @@ void USpudState::StorePropertyVisitor::StoreNestedUObjectIfNeeded(UObject* RootO
 			const void* DataPtr = Property->ContainerPtrToValuePtr<void>(ContainerPtr);
 			const auto Obj = OProp->GetObjectPropertyValue(DataPtr);
 
-			if (Obj)
+			// Do not save the properties of assets, only Transient UObjects
+			if (Obj && !Obj->IsAsset())
 			{
 				const bool IsCallback = Obj->GetClass()->ImplementsInterface(USpudObjectCallback::StaticClass());
 
@@ -806,7 +807,7 @@ void USpudState::RestorePropertyVisitor::RestoreNestedUObjectIfNeeded(UObject* R
 
 			// By this point, the restore will have created the instance if the data was non-null, since the
 			// property before this contains the class (or null)
-			if (Obj)
+			if (Obj && !Obj->IsAsset())
 			{
 				const bool IsCallback = Obj->GetClass()->ImplementsInterface(USpudObjectCallback::StaticClass());
 

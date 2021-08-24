@@ -38,6 +38,7 @@ extern int32 GCurrentUserDataModelVersion;
 #define SPUDDATA_PROPERTYID_NONE 0xFFFFFFFF
 #define SPUDDATA_PREFIXID_NONE 0xFFFFFFFF
 #define SPUDDATA_CLASSID_NONE 0xFFFFFFFF
+#define SPUDDATA_CLASSID_ASSET 0xFFFFFFFE
 
 // None of the structs in this file are exposed to Blueprints. They are theoretically available to external code
 // via C++ but honestly external code should just use the API on USpudSubsystem, or USpudState at a push (save upgrading)

@@ -546,15 +546,28 @@ FString SpudPropertyUtil::WriteNestedUObjectPropertyData(FObjectProperty* OProp,
 	FString Ret = "NULL";
 	// We already have the Actor so no need to get property value
 	if (UObj)
-	{		
-		// UObjects (not actor refs) first store the class (as an ID)
-		Ret = GetClassName(UObj);
-		ClassID = Meta.FindOrAddClassIDFromName(Ret);
+	{
+		if(UObj->IsAsset())
+		{
+			// With assets we store the assets path to resolve it later
+			ClassID = SPUDDATA_CLASSID_ASSET;
+			Out << ClassID;
+			Ret = UObj->GetPathName();
+			Out << Ret;
+		}
+		else
+		{
+			// UObjects (not actor refs) first store the class (as an ID)
+			Ret = GetClassName(UObj);
+			ClassID = Meta.FindOrAddClassIDFromName(Ret);
+			Out << ClassID;
+		}
 	}
 	else // null
+	{
 		ClassID = SPUDDATA_CLASSID_NONE;
-	
-	Out << ClassID;
+		Out << ClassID;
+	}
 
 	// Note that we ONLY write the class (or null) here. Actual property data is cascaded separately
 	return Ret;
@@ -627,14 +640,14 @@ bool SpudPropertyUtil::TryWriteMulticastDelegatePropertyData(FProperty* Property
 		if (!bIsArrayElement)
 			RegisterProperty(MDProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
 
-		FString SriptDelegateDesc;
+		FString ScriptDelegateDesc;
 		const FMulticastScriptDelegate* scriptDelegate = MDProp->GetMulticastDelegate(Data);
 		if(scriptDelegate)
 		{
 			// MC delegates are kinda closes but we have this ToString which describes the function name we need to store
 			// in the object, so we use that in corelation with the GetObject
-			SriptDelegateDesc = scriptDelegate->ToString<UObject>();
-			if(SriptDelegateDesc != TEXT( "<Unbound>" ))
+			ScriptDelegateDesc = scriptDelegate->ToString<UObject>();
+			if(ScriptDelegateDesc != TEXT( "<Unbound>" ))
 			{
 				// Unreachables we will just call NULLs (cannot be saved)
 				TArray< UObject* > BoundObjects = scriptDelegate->GetAllObjectsEvenIfUnreachable();
@@ -642,7 +655,7 @@ bool SpudPropertyUtil::TryWriteMulticastDelegatePropertyData(FProperty* Property
 				TArray<TPair<FString, FString>> ObjRefNameToFunction;
 				
 				// Chop off the array brackets
-				FString BindingsDesc = SriptDelegateDesc.Mid(1, SriptDelegateDesc.Len() - 2);
+				FString BindingsDesc = ScriptDelegateDesc.Mid(1, ScriptDelegateDesc.Len() - 2);
 				
 				TCHAR *ContextStr = nullptr;
 				TCHAR *BindingsStr = FCString::Strtok(BindingsDesc.GetCharArray().GetData(), TEXT(","), &ContextStr);
@@ -706,10 +719,10 @@ bool SpudPropertyUtil::TryWriteMulticastDelegatePropertyData(FProperty* Property
 		{
 			int32 NumBindings = 0;
 			Out << NumBindings;
-			SriptDelegateDesc = TEXT( "<Unbound>" );
+			ScriptDelegateDesc = TEXT( "<Unbound>" );
 		}
 
-		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(MDProp, Depth), *SriptDelegateDesc);
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(MDProp, Depth), *ScriptDelegateDesc);
 		return true;
 	}
 	
@@ -744,14 +757,13 @@ bool SpudPropertyUtil::TryReadMulticastDelegatePropertyData(FProperty* Prop, voi
 		}
 
 		MDProp->SetMulticastDelegate(Data, ScriptDelegateOut);
-		// For debug and development output the more informative result, otherwise give a general idea of what was output
-		// because the ToString has a bunch of iteration and string appending which we can bypass the expense.
-#if UE_BUILD_DEBUG || UE_BUILD_DEVELOPMENT
-		const FString SriptDelegateDesc = ScriptDelegateOut.ToString<UObject>();
-		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *SriptDelegateDesc);
-#else
-		UE_LOG(LogSpudProps, Verbose, TEXT("%s = Restored %d bound actors"), *GetLogPrefix(Prop, Depth), NumBoundActors);
-#endif
+
+		UE_SUPPRESS(LogSpudProps, Verbose, 
+		{
+			const FString ScriptDelegateDesc = ScriptDelegateOut.ToString<UObject>();
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ScriptDelegateDesc);
+		});
+
 		return true;
 	}
 	
@@ -783,6 +795,14 @@ FString SpudPropertyUtil::ReadNestedUObjectPropertyData(FObjectProperty* OProp, 
 	{
 		// If stored data said it should be null, set it
 		OProp->SetObjectPropertyValue(Data, nullptr);
+	}
+	else if(ClassID == SPUDDATA_CLASSID_ASSET)
+	{
+		// With assets we just load the object.
+		// This can be a performance hit but the dev should know better and use a soft reference instead if that is an issue.
+		In << Ret;
+		UObject* assetRef = StaticLoadObject(OProp->PropertyClass, nullptr, *Ret);
+		OProp->SetObjectPropertyValue(Data, assetRef);
 	}
 	else
 	{
