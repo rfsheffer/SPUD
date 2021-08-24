@@ -75,6 +75,10 @@ public:
 protected:
 
 	FString Source;
+	
+	// Populated and valid only during restore time
+	UPROPERTY()
+	TMap<FGuid, UObject*> RuntimeObjectsByGuid;
 
 	void WriteCoreActorData(AActor* Actor, FArchive& Out) const;
 
@@ -355,6 +359,15 @@ public:
 
 	bool bTestRequireSlowPath = false;
 	bool bTestRequireFastPath = false;
+
+	/// With an actor get the string we would save to re-reference this actor at restore time.
+	UFUNCTION(BlueprintCallable)
+	bool GetActorReferenceString(AActor* ActorToReference, FString& ActorReferenceString) const;
+
+	/// With a reference string get the actor it is referencing.
+	/// This may not resolve if the required level is not loaded.
+	UFUNCTION(BlueprintCallable)
+	AActor* GetReferenceStringActor(const FString& ActorReferenceString, AActor* ReferencingActor) const;
 	
 };
 

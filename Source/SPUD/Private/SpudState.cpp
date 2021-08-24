@@ -427,7 +427,9 @@ void USpudState::RestoreLevel(ULevel* Level)
 	FScopeLock LevelLock(&LevelData->Mutex);
 	
 	UE_LOG(LogSpudState, Verbose, TEXT("RESTORE level %s - Start"), *LevelName);
-	TMap<FGuid, UObject*> RuntimeObjectsByGuid;
+	
+	RuntimeObjectsByGuid.Empty();
+
 	// Respawn dynamic actors first; they need to exist in order for cross-references in level actors to work
 	for (auto&& SpawnedActor : LevelData->SpawnedActors.Contents)
 	{
@@ -456,6 +458,7 @@ void USpudState::RestoreLevel(ULevel* Level)
 	}
 	UE_LOG(LogSpudState, Verbose, TEXT("RESTORE level %s - Complete"), *LevelName);
 
+	RuntimeObjectsByGuid.Empty();
 }
 
 bool USpudState::PreLoadLevelData(const FString& LevelName)
@@ -1090,6 +1093,38 @@ bool USpudState::LoadSaveInfoFromArchive(FArchive& Ar, USpudSaveGameInfo& OutInf
 	}
 	return Ok;
 	
+}
+
+bool USpudState::GetActorReferenceString(AActor* ActorToReference, FString& ActorReferenceString) const
+{
+	if(!ActorToReference)
+	{
+		ActorReferenceString.Empty();
+		return false;
+	}
+	if(!SpudPropertyUtil::GetActorReferenceString(ActorToReference, ActorReferenceString))
+	{
+		UE_LOG(LogSpudState, Warning, TEXT("Unable to determine actor reference string for: '%s'. Add SpudGuid to be able to reference this actor!"), *ActorToReference->GetPathName());
+		return false;
+	}
+	return true;
+}
+
+AActor* USpudState::GetReferenceStringActor(const FString& ActorReferenceString, AActor* ReferencingActor) const
+{
+	if(!ReferencingActor)
+	{
+		UE_LOG(LogSpudState, Warning, TEXT("SpudState::GetReferenceStringActor called with invalid ReferencingActor!"));
+		return nullptr;
+	}
+	
+	AActor* refActor = SpudPropertyUtil::GetReferencedActor(ActorReferenceString, &RuntimeObjectsByGuid, ReferencingActor->GetLevel(), ReferencingActor->GetPathName());
+	if(!refActor)
+	{
+		UE_LOG(LogSpudState, Warning, TEXT("Unable to resolve actor by reference: '%s'"), *ActorReferenceString);
+	}
+
+	return refActor;
 }
 
 
