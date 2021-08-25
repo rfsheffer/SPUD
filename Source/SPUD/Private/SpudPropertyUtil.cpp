@@ -36,7 +36,7 @@ bool SpudPropertyUtil::IsValidArrayType(FArrayProperty* AProp)
 		if (!IsBuiltInStructProperty(SProp))
 			return false;
 	}
-	else if (IsNonActorObjectProperty(AProp->Inner))
+	else if (IsNestedUObjectProperty(AProp->Inner))
 	{
 		// Same problem with nested UObjects
 		return false;
@@ -65,7 +65,11 @@ bool SpudPropertyUtil::IsCustomStructProperty(const FProperty* Property)
 
 bool SpudPropertyUtil::IsActorObjectProperty(const FProperty* Property)
 {
-	if (const auto OProp = ExactCastConstField<FObjectProperty>(Property))
+	// Early-out on TSubclassOf which is a specialised FObjectProperty
+	if (IsSubclassOfProperty(Property))
+		return false;
+
+	if (const auto OProp = CastField<FObjectProperty>(Property))
 	{
 		if (OProp->PropertyClass && OProp->PropertyClass->IsChildOf(AActor::StaticClass()))
 		{
@@ -75,9 +79,13 @@ bool SpudPropertyUtil::IsActorObjectProperty(const FProperty* Property)
 	return false;
 }
 
-bool SpudPropertyUtil::IsNonActorObjectProperty(const FProperty* Property)
+bool SpudPropertyUtil::IsNestedUObjectProperty(const FProperty* Property)
 {
-	if (const auto OProp = ExactCastConstField<FObjectProperty>(Property))
+	// Early-out on TSubclassOf which is a specialised FObjectProperty
+	if (IsSubclassOfProperty(Property))
+		return false;
+	
+	if (const auto OProp = CastField<FObjectProperty>(Property))
 	{
 		if (OProp->PropertyClass && !OProp->PropertyClass->IsChildOf(AActor::StaticClass()))
 		{
@@ -117,7 +125,7 @@ uint16 SpudPropertyUtil::GetPropertyDataType(const FProperty* Prop)
 		else
 			Ret = ESST_CustomStruct; // Anything else is a custom struct
 	}
-	else if (ExactCastConstField<FObjectProperty>(ActualProp))
+	else if (CastField<FObjectProperty>(ActualProp))
 	{
 		// Could be:
 		// 1. An Actor ref
@@ -1078,7 +1086,23 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 	}
 	else 
 	{
-		if(TryReadPropertyData<FFloatProperty,	float>(Property, DataPtr, StoredProperty, Depth, DataIn))
+		bUpdateOK =
+            TryReadPropertyData<FBoolProperty,		bool>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FByteProperty,		uint8>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FUInt16Property,	uint16>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FUInt32Property,	uint32>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FUInt64Property,	uint64>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FInt8Property,		int8>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FInt16Property,	int16>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FIntProperty,		int>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FInt64Property,	int64>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FDoubleProperty,	double>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FStrProperty,		FString>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FNameProperty,		FName>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadEnumPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn);
+
+		// Special case for floats which might be world times that should be offset
+		if(!bUpdateOK && TryReadPropertyData<FFloatProperty,	float>(Property, DataPtr, StoredProperty, Depth, DataIn))
 		{
 			bUpdateOK = true;
 			// Special case time offset might need to be applied
@@ -1089,25 +1113,7 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 				fltProp->SetPropertyValue(DataPtr, newOffsetTime);
 			}
 		}
-		else
-		{
-			bUpdateOK =
-			TryReadPropertyData<FBoolProperty,		bool>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FByteProperty,		uint8>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FUInt16Property,	uint16>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FUInt32Property,	uint32>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FUInt64Property,	uint64>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FInt8Property,		int8>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FInt16Property,	int16>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FIntProperty,		int>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FInt64Property,	int64>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FDoubleProperty,	double>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FStrProperty,		FString>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FNameProperty,		FName>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadPropertyData<FTextProperty,		FText>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
-			TryReadEnumPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn);
-		}
-			
+		
 		if (!bUpdateOK)
 		{
 			// Actors can refer to each other
