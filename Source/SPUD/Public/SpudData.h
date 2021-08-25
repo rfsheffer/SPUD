@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogSpudData, Verbose, Verbose);
+DECLARE_LOG_CATEGORY_EXTERN(LogSpudData, Log, All);
 
 extern int32 GCurrentUserDataModelVersion;
 

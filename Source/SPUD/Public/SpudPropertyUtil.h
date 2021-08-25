@@ -5,7 +5,7 @@
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogSpudProps, Verbose, Verbose);
+DECLARE_LOG_CATEGORY_EXTERN(LogSpudProps, Log, All);
 
 /// Type info for persistence
 /// Maps a given type to:

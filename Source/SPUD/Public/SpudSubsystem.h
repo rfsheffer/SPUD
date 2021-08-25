@@ -9,7 +9,7 @@
 
 #include "SpudSubsystem.generated.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogSpudSubsystem, Verbose, Verbose);
+DECLARE_LOG_CATEGORY_EXTERN(LogSpudSubsystem, Log, All);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSpudPreLoadGame, const FString&, SlotName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSpudPostLoadGame, const FString&, SlotName, bool, bSuccess);

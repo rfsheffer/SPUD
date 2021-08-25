@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogSpudModule, Verbose, Verbose);
+DECLARE_LOG_CATEGORY_EXTERN(LogSpudModule, Log, All);
 
 class FSpudModule : public IModuleInterface
 {
