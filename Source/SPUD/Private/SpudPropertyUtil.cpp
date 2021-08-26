@@ -8,7 +8,8 @@ bool SpudPropertyUtil::ShouldPropertyBeIncluded(FProperty* Property, bool IsChil
 {
 	if (Property->HasAnyPropertyFlags(CPF_Deprecated))
 		return false;
-	if (!Property->HasAnyPropertyFlags(CPF_SaveGame) && !IsChildOfSaveGame)
+	if (!Property->HasAnyPropertyFlags(CPF_SaveGame)) // && !IsChildOfSaveGame // UNDONE RFS: We mark struct and uobj properties we need with SaveGame
+																			   //             Having all of them considered is not good....
 		return false;
 
 	return true;
@@ -387,7 +388,6 @@ bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint3
 	
 	if (const auto SoftObjProp = ExactCastField<FSoftObjectProperty>(Property))
 	{
-		// Class reference properties are stored as a class ClassID
 		if (!bIsArrayElement)
 			RegisterProperty(SoftObjProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
 
@@ -443,6 +443,72 @@ bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint3
 		{
 			// Serialize the identifying string in the case of a valid result
 			if(SoftObjectFlag > 1)
+			{
+				Out << Ret;
+			}
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Property, Depth), Ret.IsEmpty() ? TEXT("NULL") : *Ret);
+		}
+		
+		return true;
+	}
+
+	if (const auto WeakObjProp = ExactCastField<FWeakObjectProperty>(Property))
+	{
+		if (!bIsArrayElement)
+			RegisterProperty(WeakObjProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+
+		// Flags: 0 - Not Saved, 1 - NULL the weak reference, 2 - Asset reference, 3 - Actor reference
+		// Only flags 2 and 3 have a string serialized
+		uint8 WeakObjectFlag = 0;
+		FString Ret;
+		
+		const FWeakObjectPtr ObjPtr = WeakObjProp->GetPropertyValue(Data);
+		if(ObjPtr.IsExplicitlyNull() || ObjPtr.IsStale())
+		{
+			// Just null, we will null on restore
+			// Stale is a good check to say this thing was going away anyway.
+			WeakObjectFlag = 1;
+		}
+		else
+		{
+			UObject* obj = ObjPtr.Get();
+			check(obj);
+			if(obj->IsAsset())
+			{
+				// We just save off the asset path to set it once we reload
+				WeakObjectFlag = 2;
+				Ret = obj->GetPathName();
+			}
+			else
+			{
+				// Try to resolve the live actor being referenced. We don't support referencing anything else at this time.
+				AActor* LiveActor = Cast<AActor>(obj);
+				if(LiveActor)
+				{
+					if(GetActorReferenceString(LiveActor, Ret))
+					{
+						// Third style
+						WeakObjectFlag = 3;
+					}
+					else
+					{
+						UE_LOG(LogSpudProps, Error, TEXT("Weak Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
+						*ClassDef.ClassName, *WeakObjProp->GetName(), *LiveActor->GetName());
+					}
+				}
+				else
+				{
+					UE_LOG(LogSpudProps, Warning, TEXT("Unable to save weak object reference to: %s"), *obj->GetPathName());
+				}
+			}
+		}
+
+		Out << WeakObjectFlag;
+		
+		if(WeakObjectFlag)
+		{
+			// Serialize the identifying string in the case of a valid result
+			if(WeakObjectFlag > 1)
 			{
 				Out << Ret;
 			}
@@ -516,6 +582,53 @@ bool SpudPropertyUtil::TryReadSoftObjectPropertyData(FProperty* Prop, void* Data
 			if(AssignReferencedActorToProperty(ActorRefString, RuntimeObjects, Level, SoftObjProp, Data))
 			{
 				UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ActorRefString);
+			}
+			else
+			{
+				UE_LOG(LogSpudProps, Warning, TEXT("%s : Unable to re-resolve actor reference '%s'"), *GetLogPrefix(Prop, Depth), *ActorRefString);
+			}
+		}
+
+		return true;
+	}
+
+	const auto WeakObjProp = ExactCastField<FWeakObjectProperty>(Prop);
+	if (WeakObjProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
+		// we ignore array flag since we could be processing inner
+	{
+		uint8 WeakObjectFlag;
+		In << WeakObjectFlag;
+
+		if(WeakObjectFlag == 1)
+		{
+			// NULL it
+			WeakObjProp->SetObjectPropertyValue(Data, nullptr);
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = NULL"), *GetLogPrefix(Prop, Depth));
+		}
+		else if(WeakObjectFlag == 2)
+		{
+			// Set the asset reference string
+			FString AssetPath;
+			In << AssetPath;
+
+			UObject* assetRef = StaticLoadObject(WeakObjProp->PropertyClass, nullptr, *AssetPath);
+			WeakObjProp->SetObjectPropertyValue(Data, assetRef);
+			
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *AssetPath);
+		}
+		else if(WeakObjectFlag == 3)
+		{
+			// Set the actor if we can resolve it
+			FString ActorRefString;
+			In << ActorRefString;
+
+			if(AssignReferencedActorToProperty(ActorRefString, RuntimeObjects, Level, WeakObjProp, Data))
+			{
+				UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ActorRefString);
+			}
+			else
+			{
+				UE_LOG(LogSpudProps, Warning, TEXT("%s : Unable to re-resolve actor reference '%s'"), *GetLogPrefix(Prop, Depth), *ActorRefString);
 			}
 		}
 
@@ -1099,6 +1212,7 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
             TryReadPropertyData<FDoubleProperty,	double>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
             TryReadPropertyData<FStrProperty,		FString>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
             TryReadPropertyData<FNameProperty,		FName>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
+            TryReadPropertyData<FTextProperty,		FText>(Property, DataPtr, StoredProperty, Depth, DataIn) ||
             TryReadEnumPropertyData(Property, DataPtr, StoredProperty, Depth, DataIn);
 
 		// Special case for floats which might be world times that should be offset
