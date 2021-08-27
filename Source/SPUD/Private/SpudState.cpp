@@ -1118,6 +1118,11 @@ bool USpudState::GetActorReferenceString(AActor* ActorToReference, FString& Acto
 
 AActor* USpudState::GetReferenceStringActor(const FString& ActorReferenceString, AActor* ReferencingActor) const
 {
+	if(ActorReferenceString.IsEmpty())
+	{
+		// Empty lookups are ok, no warnings, just return null as would be expected not passing in a valid string to lookup.
+		return nullptr;
+	}
 	if(!ReferencingActor)
 	{
 		UE_LOG(LogSpudState, Warning, TEXT("SpudState::GetReferenceStringActor called with invalid ReferencingActor!"));

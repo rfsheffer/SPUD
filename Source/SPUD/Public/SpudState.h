@@ -545,5 +545,453 @@ public:
 	/// Access the underlying archive in order to write custom data directly.
 	FArchive* GetUnderlyingArchive() const { return Ar; }
 
+	/// Omni-directional read write call for single function store/restore design
+	template <typename T>
+	bool ReadWrite(T& OutValue)
+	{
+		if(CanRead())
+		{
+			return Read(OutValue);
+		}
+
+		Write(OutValue);
+		return true;
+	}
+
+	void Write(const TCHAR* RawString)
+	{
+		const FString strOfRaw(RawString);
+		WriteString(strOfRaw);
+	}
 };
 
+
+// General C++ Helpers for Custom Data Store / Restore for Spud
+struct FSpudStoreRestoreHelpers
+{
+	/** STRUCT STORING / RESTORING */
+	template<typename T>
+	static void StoreRestoreStruct(AActor* owner, const class USpudState* state, class USpudStateCustomData* custom_data, T& structIn)
+	{
+		int32 dataVersion = T::SpudDataVersion;
+		custom_data->ReadWrite(dataVersion);
+
+		check(owner);
+		structIn.SpudStoreRestore(owner, dataVersion, state, custom_data);
+	}
+	
+	template<typename T>
+	static void StoreRestoreStructArray(AActor* owner, const class USpudState* state, class USpudStateCustomData* custom_data, TArray<T>& array)
+	{
+		int32 dataVersion = T::SpudDataVersion;
+		custom_data->ReadWrite(dataVersion);
+
+		check(owner);
+		if(custom_data->CanRead())
+		{
+			int32 arrayNum;
+			custom_data->Read(arrayNum);
+			array.SetNum(arrayNum);
+		}
+		else
+		{
+			custom_data->Write(array.Num());
+		}
+		for(T& elm : array)
+		{
+			elm.SpudStoreRestore(owner, dataVersion, state, custom_data);
+		}
+	}
+
+	/** SIMPLE ARRAY STORING / RESTORING */
+	template<typename T>
+	static void StoreSimpleArray(class USpudStateCustomData* custom_data, const TArray<T>& array)
+	{
+		custom_data->Write(array.Num());
+		
+		for(const T& elm : array)
+		{
+			custom_data->Write(elm);
+		}
+	}
+
+	template<typename T>
+	static void RestoreSimpleArray(class USpudStateCustomData* custom_data, TArray<T>& array)
+	{
+		int32 arrNum;
+		custom_data->Read(arrNum);
+		array.SetNum(arrNum);
+		for(T& elm : array)
+		{
+			custom_data->Read(elm);
+		}
+	}
+	
+	template<typename T>
+	static void StoreRestoreSimpleArray(class USpudStateCustomData* custom_data, TArray<T>& array)
+	{
+		if(custom_data->CanRead())
+		{
+			int32 arrayNum;
+			custom_data->Read(arrayNum);
+			array.SetNum(arrayNum);
+		}
+		else
+		{
+			custom_data->Write(array.Num());
+		}
+		for(T& elm : array)
+		{
+			custom_data->ReadWrite(elm);
+		}
+	}
+
+	/** SIMPLE SET STORING / RESTORING */
+	template<typename T>
+	static void StoreSimpleSet(class USpudStateCustomData* custom_data, const TSet<T>& set)
+	{
+		custom_data->Write(set.Num());
+		
+		for(const T& elm : set)
+		{
+			custom_data->Write(elm);
+		}
+	}
+
+	template<typename T>
+	static void RestoreSimpleSet(class USpudStateCustomData* custom_data, TSet<T>& set)
+	{
+		int32 setNum;
+		custom_data->Read(setNum);
+		set.Reserve(setNum);
+		for(int32 setElmIndex = 0; setElmIndex < setNum; ++setElmIndex)
+		{
+			T elmIn;
+			custom_data->Read(elmIn);
+			set.Add(elmIn);
+		}
+	}
+	
+	template<typename T>
+	static void StoreRestoreSimpleSet(class USpudStateCustomData* custom_data, TSet<T>& set)
+	{
+		if(custom_data->CanWrite())
+		{
+			custom_data->Write(set.Num());
+		
+			for(const T& elm : set)
+			{
+				custom_data->Write(elm);
+			}
+		}
+		else
+		{
+			int32 setNum;
+			custom_data->Read(setNum);
+			set.Reserve(setNum);
+			for(int32 setElmIndex = 0; setElmIndex < setNum; ++setElmIndex)
+			{
+				T elmIn;
+				custom_data->Read(elmIn);
+				set.Add(elmIn);
+			}
+		}
+	}
+
+	/** ACTOR REFERENCE STORING / RESTORING */
+	template<typename T>
+	static void StoreActorReference(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, TWeakObjectPtr<T> actorToStore)
+	{
+		FString actorRefStr;
+		state->GetActorReferenceString(actorToStore.Get(), actorRefStr);
+		custom_data->Write(actorRefStr);
+	}
+	
+	static void StoreActorReference(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, AActor* actorToStore)
+	{
+		FString actorRefStr;
+		state->GetActorReferenceString(actorToStore, actorRefStr);
+		custom_data->Write(actorRefStr);
+	}
+
+	template<typename T>
+	static void RestoreActorReference(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, TWeakObjectPtr<T>& actorToRestore)
+	{
+		FString actorRefStr;
+		custom_data->Read(actorRefStr);
+		actorToRestore = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
+	}
+
+	template<typename T>
+	static void RestoreActorReference(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, T*& actorToRestore)
+	{
+		FString actorRefStr;
+		custom_data->Read(actorRefStr);
+		actorToRestore = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
+	}
+	
+	template<typename T>
+	static void StoreRestoreActorReference(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, TWeakObjectPtr<T>& actor)
+	{
+		if(custom_data->CanWrite())
+		{
+			FString actorRefStr;
+			state->GetActorReferenceString(actor.Get(), actorRefStr);
+			custom_data->Write(actorRefStr);
+		}
+		else
+		{
+			FString actorRefStr;
+			custom_data->Read(actorRefStr);
+			actor = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
+		}
+	}
+
+	template<typename T>
+	static void StoreRestoreActorReferenceArray(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, TArray<TWeakObjectPtr<T>>& actorArray)
+	{
+		if(custom_data->CanWrite())
+		{
+			custom_data->WriteInt(actorArray.Num());
+		}
+		else
+		{
+			int32 arrNum = 0;
+			custom_data->ReadInt(arrNum);
+			actorArray.SetNum(arrNum);
+		}
+
+		for(TWeakObjectPtr<T>& elm : actorArray)
+		{
+			StoreRestoreActorReference(referingActor, state, custom_data, elm);
+		}
+	}
+
+	template<typename T>
+	static void StoreRestoreActorReference(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, T*& actor)
+	{
+		if(custom_data->CanWrite())
+		{
+			FString actorRefStr;
+			state->GetActorReferenceString(actor, actorRefStr);
+			custom_data->Write(actorRefStr);
+		}
+		else
+		{
+			FString actorRefStr;
+			custom_data->Read(actorRefStr);
+			actor = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
+		}
+	}
+
+	template<typename T>
+	static void StoreRestoreActorReferenceArray(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, TArray<T*>& actorArray)
+	{
+		if(custom_data->CanWrite())
+		{
+			custom_data->WriteInt(actorArray.Num());
+		}
+		else
+		{
+			int32 arrNum = 0;
+			custom_data->ReadInt(arrNum);
+			actorArray.SetNum(arrNum);
+		}
+
+		for(T*& elm : actorArray)
+		{
+			StoreRestoreActorReference(referingActor, state, custom_data, elm);
+		}
+	}
+
+	/** ASSET REFERENCE STORING / RESTORING */
+	static void StoreAssetReference(class USpudStateCustomData* custom_data, UObject* assetToStore)
+	{
+		if(assetToStore)
+		{
+			custom_data->Write(assetToStore->GetPathName());
+		}
+		else
+		{
+			custom_data->Write(TEXT(""));
+		}
+	}
+
+	template<typename T>
+	static void RestoreAssetReference(class USpudStateCustomData* custom_data, T*& assetToRestore)
+	{
+		FString assetPathStr;
+		custom_data->Read(assetPathStr);
+		if(assetPathStr.IsEmpty())
+		{
+			assetToRestore = nullptr;
+		}
+		else
+		{
+			assetToRestore = Cast<T>(StaticLoadObject(T::StaticClass(), nullptr, *assetPathStr));
+		}
+	}
+	
+	template<typename T>
+	static void StoreRestoreAssetReference(class USpudStateCustomData* custom_data, T*& asset)
+	{
+		if(custom_data->CanWrite())
+		{
+			if(asset)
+			{
+				custom_data->Write(asset->GetPathName());
+			}
+			else
+			{
+				custom_data->Write(TEXT(""));
+			}
+		}
+		else
+		{
+			FString assetPathStr;
+			custom_data->Read(assetPathStr);
+			if(assetPathStr.IsEmpty())
+			{
+				asset = nullptr;
+			}
+			else
+			{
+				asset = Cast<T>(StaticLoadObject(T::StaticClass(), nullptr, *assetPathStr));
+			}
+		}
+	}
+
+	template<typename T>
+	static void StoreRestoreAssetReferenceArray(class USpudStateCustomData* custom_data, TArray<T*>& assetArray)
+	{
+		if(custom_data->CanWrite())
+		{
+			custom_data->WriteInt(assetArray.Num());
+		}
+		else
+		{
+			int32 arrNum = 0;
+			custom_data->ReadInt(arrNum);
+			assetArray.SetNum(arrNum);
+		}
+
+		for(T*& elm : assetArray)
+		{
+			StoreRestoreAssetReference(custom_data, elm);
+		}
+	}
+
+	/** SCRIPT INTERFACE STORING / RESTORING */
+	template<typename T>
+	static void StoreRestoreScriptInterface(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, TScriptInterface<T>& scriptInterface)
+	{
+		if(custom_data->CanWrite())
+		{
+			FString actorRefStr;
+			state->GetActorReferenceString(Cast<AActor>(scriptInterface.GetObject()), actorRefStr);
+			custom_data->Write(actorRefStr);
+		}
+		else
+		{
+			FString actorRefStr;
+			custom_data->Read(actorRefStr);
+			scriptInterface = state->GetReferenceStringActor(actorRefStr, referingActor);
+		}
+	}
+
+	template<typename T>
+	static void StoreRestoreScriptInterfaceArray(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, TArray<TScriptInterface<T>>& scriptInterfaceArray)
+	{
+		if(custom_data->CanWrite())
+		{
+			custom_data->WriteInt(scriptInterfaceArray.Num());
+		}
+		else
+		{
+			int32 arrNum = 0;
+			custom_data->ReadInt(arrNum);
+			scriptInterfaceArray.SetNum(arrNum);
+		}
+
+		for(TScriptInterface<T>& scriptInterface : scriptInterfaceArray)
+		{
+			StoreRestoreScriptInterface(referingActor, state, custom_data, scriptInterface);
+		}
+	}
+
+	/** MAPS STORING / RESTORING */
+	template<typename K, typename V>
+	static void StoreRestoreSimpleMap(class USpudStateCustomData* custom_data, TMap<K, V>& simpleMap)
+	{
+		if(custom_data->CanWrite())
+		{
+			custom_data->Write(simpleMap.Num());
+			for(const TPair<K, V>& pair : simpleMap)
+			{
+				custom_data->Write(pair.Key);
+				custom_data->Write(pair.Value);
+			}
+		}
+		else
+		{
+			int32 numMapped = 0;
+			custom_data->Read(numMapped);
+			simpleMap.Reserve(numMapped);
+			for(int32 mapIndex = 0; mapIndex < numMapped; ++mapIndex)
+			{
+				K key;
+				custom_data->Read(key);
+				V value;
+				custom_data->Read(value);
+				simpleMap.Add(key, value);
+			}
+		}
+	}
+
+	template<typename K, typename V>
+	static void StoreRestoreStructMap(AActor* owner, const class USpudState* state, class USpudStateCustomData* custom_data, TMap<K, V>& structMap)
+	{
+		if(custom_data->CanWrite())
+		{
+			custom_data->Write(structMap.Num());
+			for(const TPair<K, V>& pair : structMap)
+			{
+				custom_data->Write(pair.Key);
+				V* elmPtr = structMap.Find(pair.Key);
+				FSpudStoreRestoreHelpers::StoreRestoreStruct(owner, state, custom_data, *elmPtr);
+			}
+		}
+		else
+		{
+			int32 numMapped = 0;
+			custom_data->Read(numMapped);
+			structMap.Reserve(numMapped);
+			for(int32 mapIndex = 0; mapIndex < numMapped; ++mapIndex)
+			{
+				K key;
+				custom_data->Read(key);
+
+				V& value = structMap.FindOrAdd(key);
+				FSpudStoreRestoreHelpers::StoreRestoreStruct(owner, state, custom_data, value);
+			}
+		}
+	}
+
+	/** WORLD TIME STORING / RESTORING */
+	static void StoreRestoreWorldTime(AActor* worldContext, class USpudStateCustomData* custom_data, float& worldTime)
+	{
+		check(worldContext);
+		if(custom_data->CanWrite())
+		{
+			// Store the delta to re-apply to the new world
+			custom_data->WriteFloat(worldTime - worldContext->GetWorld()->GetTimeSeconds());
+		}
+		else
+		{
+			// Get the delta
+			custom_data->ReadFloat(worldTime);
+			// Apply the new world time
+			worldTime += worldContext->GetWorld()->GetTimeSeconds();
+		}
+	}
+};
