@@ -1169,6 +1169,9 @@ void SpudPropertyUtil::RestoreArrayProperty(UObject* RootObject, FArrayProperty*
 	
 }
 
+// Set to an unused property flag for CPF_WorldTime which you can add to your game
+#define WORLD_TIME_PROPERTY_FLAG 0x0000000004000000
+
 void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* const Property,
                                                       void* ContainerPtr, const FSpudPropertyDef& StoredProperty,
                                                       const RuntimeObjectMap* RuntimeObjects,
@@ -1220,7 +1223,7 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 		{
 			bUpdateOK = true;
 			// Special case time offset might need to be applied
-			if(Property->HasMetaData(TEXT("SavedWorldTime")))
+			if(Property->GetPropertyFlags() & WORLD_TIME_PROPERTY_FLAG)
 			{
 				const FFloatProperty* fltProp = CastField<FFloatProperty>(Property);
 				const float newOffsetTime = (fltProp->GetPropertyValue(DataPtr) - Meta.ClassWorldTimeSeconds) + Meta.GlobalWorldTimeSeconds;
