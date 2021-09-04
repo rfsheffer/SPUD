@@ -507,6 +507,9 @@ AActor* USpudState::RespawnActor(const FSpudSpawnedActorData& SpawnedActor,
 	}
 	FActorSpawnParameters Params;
 	Params.OverrideLevel = Level;
+	// Defer construction so we can send a OnPreRespawn message before construction letting the thing decide
+	// not the do some starting work if being respawned.
+	Params.bDeferConstruction = true;
 	UE_LOG(LogSpudState, Verbose, TEXT(" * Respawning actor %s of type %s"), *SpawnedActor.Guid.ToString(), *ClassName);
 
 	// Important to spawn using level's world, our GetWorld may not be valid it turns out
@@ -517,7 +520,12 @@ AActor* USpudState::RespawnActor(const FSpudSpawnedActorData& SpawnedActor,
 		if (!SpudPropertyUtil::SetGuidProperty(Actor, SpawnedActor.Guid))
 		{
 			UE_LOG(LogSpudState, Error, TEXT("Re-spawned a runtime actor of class %s but it is missing a SpudGuid property!"), *ClassName);
-		}		
+		}
+		if(Actor->Implements<USpudObjectCallback>())
+		{
+			ISpudObjectCallback::Execute_SpudPreRespawnActor(Actor);
+		}
+		Actor->FinishSpawning(FTransform(), true, nullptr);
 	}
 	else
 	{
