@@ -38,37 +38,37 @@ struct FTestAllTypesStruct
 public:
 	// Primitive types
 	UPROPERTY(SaveGame)
-	int IntVal;
+	int IntVal = 0;
 	UPROPERTY(SaveGame)
-	uint8 UInt8Val;
+	uint8 UInt8Val = 0;
 	UPROPERTY(SaveGame)
-	uint16 UInt16Val;
+	uint16 UInt16Val = 0;
 	UPROPERTY(SaveGame)
-	uint32 UInt32Val;
+	uint32 UInt32Val = 0;
 	UPROPERTY(SaveGame)
-	uint64 UInt64Val;
+	uint64 UInt64Val = 0;
 	UPROPERTY(SaveGame)
-	int8 Int8Val;
+	int8 Int8Val = 0;
 	UPROPERTY(SaveGame)
-	int16 Int16Val;
+	int16 Int16Val = 0;
 	UPROPERTY(SaveGame)
-	int32 Int32Val;
+	int32 Int32Val = 0;
 	UPROPERTY(SaveGame)
-	int64 Int64Val;
+	int64 Int64Val = 0;
 
 	UPROPERTY(SaveGame)
-	float FloatVal;
+	float FloatVal = 0.0f;
 	UPROPERTY(SaveGame)
-	double DoubleVal;
+	double DoubleVal = 0.0;
 	
 	UPROPERTY(SaveGame)
-	ETestEnum EnumVal;
+	ETestEnum EnumVal = ETestEnum::First;
 
 	// Built in structs
 	UPROPERTY(SaveGame)
-	FVector VectorVal;
+	FVector VectorVal = FVector(0.0f, 0.0f, 0.0f);
 	UPROPERTY(SaveGame)
-	FRotator RotatorVal;
+	FRotator RotatorVal = FRotator(0.0f, 0.0f, 0.0f);
 	UPROPERTY(SaveGame)
 	FTransform TransformVal;
 
@@ -79,7 +79,7 @@ public:
 	FString StringVal;
 
 	UPROPERTY(SaveGame)
-	UTestNestedUObject* UObjectVal;
+	UTestNestedUObject* UObjectVal = nullptr;
 
 	UPROPERTY(SaveGame)
 	TSubclassOf<AActor> ActorSubclass;
