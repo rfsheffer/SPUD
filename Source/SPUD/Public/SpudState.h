@@ -76,9 +76,13 @@ protected:
 
 	FString Source;
 	
-	// Populated and valid only during restore time
+	// Populated as runtime objects are restored. Kept as a master list of currently restored runtime objects
+	// so other loading levels can reference objects in levels other than thier own.
 	UPROPERTY()
 	TMap<FGuid, UObject*> RuntimeObjectsByGuid;
+	// Populated and valid only during restore time
+	UPROPERTY()
+	TMap<FName, ULevel*> WorldLevelsMap;
 
 	void WriteCoreActorData(AActor* Actor, FArchive& Out) const;
 
@@ -246,6 +250,16 @@ public:
 	/// Specialised function for restoring a specific level by reference
 	void RestoreLevel(ULevel* Level);
 
+protected:
+
+	/// Restore the levels spawned actors (does not restore thier properties)
+	bool RestoreLevelSpawnedActors(ULevel* Level, const FString& LevelName, FSpudSaveData::TLevelDataPtr LevelData);
+
+	/// Restores a levels actors properties
+	bool RestoreLevelActorProperties(ULevel* Level, const FString& LevelName, FSpudSaveData::TLevelDataPtr LevelData);
+	
+public:
+
 	/// Request that data for a level is loaded in the calling thread
 	/// Useful for pre-caching before RestoreLevel
 	bool PreLoadLevelData(const FString& LevelName);
@@ -253,10 +267,12 @@ public:
 	// Restores the world and all levels currently in it, on the assumption that it's already loaded into the correct map
 	void RestoreLoadedWorld(UWorld* World);
 
+	/// UNDONE RFS: This function is pretty dangerous because it lacks the state required to restore all things.
+	///				Because of the inconsistency, my opinion, do not allow this!
 	/// Restores a single actor from  this state. Does not require the actor to implement ISpudObject.
 	/// NOTE: this is a limited function, it's less efficient than using RestoreLevel for multiple actors, and it
 	/// also cannot restore object cross-references if those references refer to runtime-spawned objects
-	void RestoreActor(AActor* Actor);
+	//void RestoreActor(AActor* Actor);
 	
 	/// Restore the contents of a single global object
 	/// This object will have the same state across all levels.
@@ -362,12 +378,12 @@ public:
 
 	/// With an actor get the string we would save to re-reference this actor at restore time.
 	UFUNCTION(BlueprintCallable)
-	bool GetActorReferenceString(AActor* ActorToReference, FString& ActorReferenceString) const;
+	bool GetActorReferenceString(AActor* ActorToReference, const AActor* ReferencingActor, FString& LevelReferenceString, FString& ActorReferenceString) const;
 
 	/// With a reference string get the actor it is referencing.
 	/// This may not resolve if the required level is not loaded.
 	UFUNCTION(BlueprintCallable)
-	AActor* GetReferenceStringActor(const FString& ActorReferenceString, AActor* ReferencingActor) const;
+	AActor* GetReferenceStringActor(const FString& LevelReferenceString, const FString& ActorReferenceString, AActor* ReferencingActor) const;
 	
 };
 
@@ -700,34 +716,42 @@ struct FSpudStoreRestoreHelpers
 
 	/** ACTOR REFERENCE STORING / RESTORING */
 	template<typename T>
-	static void StoreActorReference(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, TWeakObjectPtr<T> actorToStore)
+	static void StoreActorReference(const AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, TWeakObjectPtr<T> actorToStore)
 	{
+		FString levelRefStr;
 		FString actorRefStr;
-		state->GetActorReferenceString(actorToStore.Get(), actorRefStr);
+		state->GetActorReferenceString(actorToStore.Get(), referingActor, levelRefStr, actorRefStr);
+		custom_data->Write(levelRefStr);
 		custom_data->Write(actorRefStr);
 	}
 	
-	static void StoreActorReference(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, AActor* actorToStore)
+	static void StoreActorReference(const AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, AActor* actorToStore)
 	{
+		FString levelRefStr;
 		FString actorRefStr;
-		state->GetActorReferenceString(actorToStore, actorRefStr);
+		state->GetActorReferenceString(actorToStore, referingActor, levelRefStr, actorRefStr);
+		custom_data->Write(levelRefStr);
 		custom_data->Write(actorRefStr);
 	}
 
 	template<typename T>
 	static void RestoreActorReference(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, TWeakObjectPtr<T>& actorToRestore)
 	{
+		FString levelRefStr;
 		FString actorRefStr;
+		custom_data->Read(levelRefStr);
 		custom_data->Read(actorRefStr);
-		actorToRestore = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
+		actorToRestore = Cast<T>(state->GetReferenceStringActor(levelRefStr, actorRefStr, referingActor));
 	}
 
 	template<typename T>
 	static void RestoreActorReference(AActor* referingActor, const class USpudState* state, class USpudStateCustomData* custom_data, T*& actorToRestore)
 	{
+		FString levelRefStr;
 		FString actorRefStr;
+		custom_data->Read(levelRefStr);
 		custom_data->Read(actorRefStr);
-		actorToRestore = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
+		actorToRestore = Cast<T>(state->GetReferenceStringActor(levelRefStr, actorRefStr, referingActor));
 	}
 	
 	template<typename T>
@@ -735,15 +759,17 @@ struct FSpudStoreRestoreHelpers
 	{
 		if(custom_data->CanWrite())
 		{
-			FString actorRefStr;
-			state->GetActorReferenceString(actor.Get(), actorRefStr);
-			custom_data->Write(actorRefStr);
+			//FString actorRefStr;
+			//state->GetActorReferenceString(actor.Get(), actorRefStr);
+			//custom_data->Write(actorRefStr);
+			StoreActorReference(referingActor, state, custom_data, actor);
 		}
 		else
 		{
-			FString actorRefStr;
-			custom_data->Read(actorRefStr);
-			actor = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
+			//FString actorRefStr;
+			//custom_data->Read(actorRefStr);
+			//actor = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
+			RestoreActorReference(referingActor, state, custom_data, actor);
 		}
 	}
 
@@ -772,15 +798,17 @@ struct FSpudStoreRestoreHelpers
 	{
 		if(custom_data->CanWrite())
 		{
-			FString actorRefStr;
-			state->GetActorReferenceString(actor, actorRefStr);
-			custom_data->Write(actorRefStr);
+			//FString actorRefStr;
+			//state->GetActorReferenceString(actor, actorRefStr);
+			//custom_data->Write(actorRefStr);
+			StoreActorReference(referingActor, state, custom_data, actor);
 		}
 		else
 		{
-			FString actorRefStr;
-			custom_data->Read(actorRefStr);
-			actor = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
+			//FString actorRefStr;
+			//custom_data->Read(actorRefStr);
+			//actor = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
+			RestoreActorReference(referingActor, state, custom_data, actor);
 		}
 	}
 
@@ -887,15 +915,13 @@ struct FSpudStoreRestoreHelpers
 	{
 		if(custom_data->CanWrite())
 		{
-			FString actorRefStr;
-			state->GetActorReferenceString(Cast<AActor>(scriptInterface.GetObject()), actorRefStr);
-			custom_data->Write(actorRefStr);
+			StoreActorReference(referingActor, state, custom_data, Cast<AActor>(scriptInterface.GetObject()));
 		}
 		else
 		{
-			FString actorRefStr;
-			custom_data->Read(actorRefStr);
-			scriptInterface = state->GetReferenceStringActor(actorRefStr, referingActor);
+			AActor* actorPtr = nullptr;
+			RestoreActorReference(referingActor, state, custom_data, actorPtr);
+			scriptInterface = actorPtr;
 		}
 	}
 

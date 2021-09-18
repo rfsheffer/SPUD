@@ -287,10 +287,12 @@ FSpudSpawnedActorData* USpudState::GetSpawnedActorData(AActor* Actor, FSpudSaveD
 	
 	if (!GuidOk)
 	{
-		UE_LOG(LogSpudState, Error, TEXT("Ignoring runtime actor %s, missing or blank SpudGuid property"), *Actor->GetName())
-		UE_LOG(LogSpudState, Error, TEXT("  Runtime spawned actors should have a SpudGuid property to identify them, initialised to valid unique value."))
-		UE_LOG(LogSpudState, Error, TEXT("  NOTE: If this actor is part of a level and not runtime spawned, the cause of this false detection might be that you haven't SAVED the level before playing in the editor."))
-		return nullptr;			
+		// RFS UNDONE: We have runtime savable actors in our levels prior to load that will be saved later. They should just be ignored if they had no Guid assigned yet.
+		// UE_LOG(LogSpudState, Error, TEXT("Ignoring runtime actor %s, missing or blank SpudGuid property"), *Actor->GetName())
+		// UE_LOG(LogSpudState, Error, TEXT("  Runtime spawned actors should have a SpudGuid property to identify them, initialised to valid unique value."))
+		// UE_LOG(LogSpudState, Error, TEXT("  NOTE: If this actor is part of a level and not runtime spawned, the cause of this false detection might be that you haven't SAVED the level before playing in the editor."))
+		UE_LOG(LogSpudState, Verbose, TEXT("Ignoring runtime actor %s, missing or blank SpudGuid property"), *Actor->GetName())
+		return nullptr;
 	}
 	
 	const auto GuidStr = Guid.ToString(SPUDDATA_GUID_KEY_FORMAT);
@@ -433,8 +435,37 @@ void USpudState::RestoreLevel(ULevel* Level)
 	FScopeLock LevelLock(&LevelData->Mutex);
 	
 	UE_LOG(LogSpudState, Verbose, TEXT("RESTORE level %s - Start"), *LevelName);
+
+	// Setup a cached mapping of level name to level for quicker re-hooking up of cross level references
+	const TArray<ULevel*>& WorldLevels = Level->GetWorld()->GetLevels();
+	for(ULevel* worldLevel : WorldLevels)
+	{
+		if(worldLevel == nullptr || worldLevel->GetOutermost() == nullptr)
+		{
+			continue;
+		}
+		WorldLevelsMap.Add(worldLevel->GetOuter()->GetFName(), worldLevel);
+	}
+
+	RestoreLevelSpawnedActors(Level, LevelName, LevelData);
+	RestoreLevelActorProperties(Level, LevelName, LevelData);
+
+	// Destroy actors in level but missing from save state
+	for (auto&& DestroyedActor : LevelData->DestroyedActors.Values)
+	{
+		DestroyActor(DestroyedActor, Level);			
+	}
 	
-	RuntimeObjectsByGuid.Empty();
+	WorldLevelsMap.Empty();
+	UE_LOG(LogSpudState, Verbose, TEXT("RESTORE level %s - Complete"), *LevelName);
+}
+
+bool USpudState::RestoreLevelSpawnedActors(ULevel* Level, const FString& LevelName, FSpudSaveData::TLevelDataPtr LevelData)
+{
+	if (!IsValid(Level) || LevelName.IsEmpty() || !LevelData)
+		return false;
+	
+	UE_LOG(LogSpudState, Verbose, TEXT("RESTORE %d level runtime actors %s"), LevelData->SpawnedActors.Contents.Num(), *LevelName);
 
 	// Respawn dynamic actors first; they need to exist in order for cross-references in level actors to work
 	for (auto&& SpawnedActor : LevelData->SpawnedActors.Contents)
@@ -444,27 +475,32 @@ void USpudState::RestoreLevel(ULevel* Level)
 			RuntimeObjectsByGuid.Add(SpawnedActor.Value.Guid, Actor);
 		// Spawned actors will have been added to Level->Actors, their state will be restored there
 	}
+
+	return true;
+}
+
+bool USpudState::RestoreLevelActorProperties(ULevel* Level, const FString& LevelName, FSpudSaveData::TLevelDataPtr LevelData)
+{
+	if (!IsValid(Level) || LevelName.IsEmpty() || !LevelData)
+		return false;
+
+	UE_LOG(LogSpudState, Verbose, TEXT("RESTORE %s level actor properties..."), *LevelName);
+
 	// Restore existing actor state
 	for (auto Actor : Level->Actors)
 	{
 		if (SpudPropertyUtil::IsPersistentObject(Actor))
 		{
 			RestoreActor(Actor, LevelData, &RuntimeObjectsByGuid);
-			auto Guid = SpudPropertyUtil::GetGuidProperty(Actor);
-			if (Guid.IsValid())
-			{
-				RuntimeObjectsByGuid.Add(Guid, Actor);
-			}
+			// auto Guid = SpudPropertyUtil::GetGuidProperty(Actor);
+			// if (Guid.IsValid())
+			// {
+			// 	RuntimeObjectsByGuid.Add(Guid, Actor);
+			// }
 		}
 	}
-	// Destroy actors in level but missing from save state
-	for (auto&& DestroyedActor : LevelData->DestroyedActors.Values)
-	{
-		DestroyActor(DestroyedActor, Level);			
-	}
-	UE_LOG(LogSpudState, Verbose, TEXT("RESTORE level %s - Complete"), *LevelName);
-
-	RuntimeObjectsByGuid.Empty();
+	
+	return true;
 }
 
 bool USpudState::PreLoadLevelData(const FString& LevelName)
@@ -474,7 +510,7 @@ bool USpudState::PreLoadLevelData(const FString& LevelName)
 	return Data != nullptr;
 }
 
-void USpudState::RestoreActor(AActor* Actor)
+/*void USpudState::RestoreActor(AActor* Actor)
 {
 	if (Actor->HasAnyFlags(RF_ClassDefaultObject|RF_ArchetypeObject|RF_BeginDestroyed))
 		return;
@@ -489,7 +525,7 @@ void USpudState::RestoreActor(AActor* Actor)
 	}
 
 	RestoreActor(Actor, LevelData, nullptr);
-}
+}*/
 
 
 AActor* USpudState::RespawnActor(const FSpudSpawnedActorData& SpawnedActor,
@@ -591,16 +627,16 @@ void USpudState::RestoreActor(AActor* Actor, FSpudSaveData::TLevelDataPtr LevelD
 	if (bRespawned)
 	{
 		ActorData = GetSpawnedActorData(Actor, LevelData, false);
-		UE_LOG(LogSpudState, Verbose, TEXT(" * RESTORE Level Actor: %s"), *Actor->GetName())
 	}
 	else
 	{
 		ActorData = GetLevelActorData(Actor, LevelData, false);
-		UE_LOG(LogSpudState, Verbose, TEXT(" * RESTORE Level Actor: %s"), *Actor->GetName())
 	}
 
 	if (ActorData)
 	{
+		UE_LOG(LogSpudState, Verbose, TEXT(" * RESTORE Level Actor: %s"), *Actor->GetName())
+		
 		PreRestoreObject(Actor, LevelData->GetUserDataModelVersion());
 		
 		RestoreCoreActorData(Actor, ActorData->CoreData);
@@ -828,7 +864,7 @@ void USpudState::RestorePropertyVisitor::RestoreNestedUObjectIfNeeded(UObject* R
 				{
 					ISpudObjectCallback::Execute_SpudPreRestore(Obj, ParentState);
 				}
-				const uint32 NewPrefixID = GetNestedPrefix(Property, CurrentPrefixID);
+				//const uint32 NewPrefixID = GetNestedPrefix(Property, CurrentPrefixID);
 				ParentState->RestoreObjectProperties(Obj, DataIn, Meta, RuntimeObjects, Depth+1);
 
 				if (IsCallback)
@@ -851,7 +887,7 @@ bool USpudState::RestoreFastPropertyVisitor::VisitProperty(UObject* RootObject, 
 	if (StoredPropertyIterator)
 	{
 		auto& StoredProperty = *StoredPropertyIterator;
-		SpudPropertyUtil::RestoreProperty(RootObject, Property, ContainerPtr, StoredProperty, RuntimeObjects, Meta, Depth, DataIn);
+		SpudPropertyUtil::RestoreProperty(RootObject, Property, ContainerPtr, StoredProperty, RuntimeObjects, &ParentState->WorldLevelsMap, Meta, Depth, DataIn);
 
 		// We DON'T increment the property iterator for custom structs, since they don't have any values of their own
 		// It's their nested properties that have the values, they're only context
@@ -904,8 +940,8 @@ bool USpudState::RestoreSlowPropertyVisitor::VisitProperty(UObject* RootObject, 
 		return true;		
 	}
 	auto& StoredProperty = ClassDef.Properties[*PropertyIndexPtr];
-	
-	SpudPropertyUtil::RestoreProperty(RootObject, Property, ContainerPtr, StoredProperty, RuntimeObjects, Meta, Depth, DataIn);
+
+	SpudPropertyUtil::RestoreProperty(RootObject, Property, ContainerPtr, StoredProperty, RuntimeObjects, &ParentState->WorldLevelsMap, Meta, Depth, DataIn);
 
 	RestoreNestedUObjectIfNeeded(RootObject, Property, CurrentPrefixID, ContainerPtr, Depth);
 	
@@ -922,6 +958,7 @@ void USpudState::RestoreLoadedWorld(UWorld* World, bool bSingleLevel, const FStr
 	// So that we don't need to check every instance of a class for matching stored / runtime class properties
 	// we will keep a cache of whether to use the fast or slow path. It's only valid for this specific load
 	// because we may load level data or different ages
+	TArray<ULevel*> LevelsToRestore;
 	for (auto& Level : World->GetLevels())
 	{
 		// Null levels possible
@@ -930,11 +967,84 @@ void USpudState::RestoreLoadedWorld(UWorld* World, bool bSingleLevel, const FStr
 
 		if (bSingleLevel && GetLevelName(Level) != OnlyLevel)
 			continue;
-
-		RestoreLevel(Level);
 		
+		LevelsToRestore.Add(Level);
 	}
 
+	if(bSingleLevel)
+	{
+		if(LevelsToRestore.Num())
+		{
+			RestoreLevel(LevelsToRestore[0]);
+		}
+		else
+		{
+			UE_LOG(LogSpudState, Error, TEXT("RESTORE unable to restore single level '%s'"), *OnlyLevel);
+		}
+	}
+	else
+	{
+		UE_LOG(LogSpudState, Verbose, TEXT("FULL WORLD RESTORE - Start"));
+		WorldLevelsMap.Empty(LevelsToRestore.Num());
+		RuntimeObjectsByGuid.Empty();
+		
+		// Full world restore. First restore all runtime actors so we have a complete GUID mapping of them
+		for(ULevel* LevelToRestore : LevelsToRestore)
+		{
+			if (!IsValid(LevelToRestore))
+				return;
+
+			WorldLevelsMap.Add(LevelToRestore->GetOuter()->GetFName(), LevelToRestore);
+	
+			FString LevelName = GetLevelName(LevelToRestore);
+			auto LevelData = GetLevelData(LevelName, false);
+
+			if (!LevelData.IsValid())
+			{
+				UE_LOG(LogSpudState, Log, TEXT("Skipping restore level %s, no data (this may be fine)"), *LevelName);
+				continue;
+			}
+
+			// Mutex lock the level (load and unload events on streaming can be in loading threads)
+			FScopeLock LevelLock(&LevelData->Mutex);
+
+			RestoreLevelSpawnedActors(LevelToRestore, LevelName, LevelData);
+		}
+
+		// Next restore all of the levels actor properties
+		for(ULevel* LevelToRestore : LevelsToRestore)
+		{
+			if (!IsValid(LevelToRestore))
+				return;
+	
+			FString LevelName = GetLevelName(LevelToRestore);
+			auto LevelData = GetLevelData(LevelName, false);
+
+			if (!LevelData.IsValid())
+			{
+				UE_LOG(LogSpudState, Log, TEXT("Skipping restore level %s, no data (this may be fine)"), *LevelName);
+				continue;
+			}
+
+			UE_LOG(LogSpudState, Verbose, TEXT("RESTORE level %s - Start"), *LevelName);
+
+			// Mutex lock the level (load and unload events on streaming can be in loading threads)
+			FScopeLock LevelLock(&LevelData->Mutex);
+			
+			RestoreLevelActorProperties(LevelToRestore, LevelName, LevelData);
+
+			// Destroy actors in level but missing from save state
+			for (auto&& DestroyedActor : LevelData->DestroyedActors.Values)
+			{
+				DestroyActor(DestroyedActor, LevelToRestore);			
+			}
+
+			UE_LOG(LogSpudState, Verbose, TEXT("RESTORE level %s - Complete"), *LevelName);
+		}
+
+		WorldLevelsMap.Empty();
+		UE_LOG(LogSpudState, Verbose, TEXT("FULL WORLD RESTORE - Complete"));
+	}
 }
 
 void USpudState::RestoreGlobalObject(UObject* Obj)
@@ -1109,14 +1219,15 @@ bool USpudState::LoadSaveInfoFromArchive(FArchive& Ar, USpudSaveGameInfo& OutInf
 	
 }
 
-bool USpudState::GetActorReferenceString(AActor* ActorToReference, FString& ActorReferenceString) const
+bool USpudState::GetActorReferenceString(AActor* ActorToReference, const AActor* ReferencingActor, FString& LevelReferenceString, FString& ActorReferenceString) const
 {
 	if(!ActorToReference)
 	{
+		LevelReferenceString.Empty();
 		ActorReferenceString.Empty();
 		return false;
 	}
-	if(!SpudPropertyUtil::GetActorReferenceString(ActorToReference, ActorReferenceString))
+	if(!SpudPropertyUtil::GetActorReferenceString(ActorToReference, ReferencingActor, LevelReferenceString, ActorReferenceString))
 	{
 		UE_LOG(LogSpudState, Warning, TEXT("Unable to determine actor reference string for: '%s'. Add SpudGuid to be able to reference this actor!"), *ActorToReference->GetPathName());
 		return false;
@@ -1124,7 +1235,7 @@ bool USpudState::GetActorReferenceString(AActor* ActorToReference, FString& Acto
 	return true;
 }
 
-AActor* USpudState::GetReferenceStringActor(const FString& ActorReferenceString, AActor* ReferencingActor) const
+AActor* USpudState::GetReferenceStringActor(const FString& LevelReferenceString, const FString& ActorReferenceString, AActor* ReferencingActor) const
 {
 	if(ActorReferenceString.IsEmpty())
 	{
@@ -1137,7 +1248,12 @@ AActor* USpudState::GetReferenceStringActor(const FString& ActorReferenceString,
 		return nullptr;
 	}
 	
-	AActor* refActor = SpudPropertyUtil::GetReferencedActor(ActorReferenceString, &RuntimeObjectsByGuid, ReferencingActor->GetLevel(), ReferencingActor->GetPathName());
+	AActor* refActor = SpudPropertyUtil::GetReferencedActor(LevelReferenceString,
+															ActorReferenceString,
+															&RuntimeObjectsByGuid,
+															&WorldLevelsMap,
+															ReferencingActor->GetLevel(),
+															ReferencingActor->GetPathName());
 	if(!refActor)
 	{
 		UE_LOG(LogSpudState, Warning, TEXT("Unable to resolve actor by reference: '%s'"), *ActorReferenceString);

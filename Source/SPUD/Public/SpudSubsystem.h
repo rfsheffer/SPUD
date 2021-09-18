@@ -183,6 +183,7 @@ protected:
 	void OnSeamlessTravelTransition(UWorld* World);
 	UFUNCTION()
 	void OnPostLoadMap(UWorld* World);
+	void DoRestoreForWorld(UWorld* World);
 	UFUNCTION()
 	void OnActorDestroyed(AActor* Actor);
 	void SubscribeAllLevelObjectEvents();
@@ -190,14 +191,14 @@ protected:
 	void UnsubscribeLevelObjectEvents(ULevel* Level);
 	void UnsubscribeAllLevelObjectEvents();
 	
-	// This is a latent callback and has to be BlueprintCallable
-	UFUNCTION(BlueprintCallable)
+	// This is a latent callback and has to be BlueprintCallable. Setting BlueprintInternalUseOnly to true so they do not show up in the editor.
+	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
 	void PostLoadStreamLevel(int32 LinkID);
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
     void PostUnloadStreamLevel(int32 LinkID);
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
     void PostLoadStreamLevelGameThread(FName LevelName);
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
     void PostUnloadStreamLevelGameThread(FName LevelName);
 
 	void StoreWorld(UWorld* World, bool bReleaseLevels, bool bBlocking);

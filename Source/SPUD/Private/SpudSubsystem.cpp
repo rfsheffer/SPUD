@@ -177,6 +177,15 @@ void USpudSubsystem::OnPostLoadMap(UWorld* World)
 	if (!ServerCheck(false))
 		return;
 	
+	DoRestoreForWorld(World);
+	PostTravelToNewMap.Broadcast();
+}
+
+void USpudSubsystem::DoRestoreForWorld(UWorld* World)
+{
+	if (!ServerCheck(false))
+		return;
+	
 	if (CurrentState == ESpudSystemState::RunningIdle ||
 		CurrentState == ESpudSystemState::LoadingGame)
 	{
@@ -186,7 +195,7 @@ void USpudSubsystem::OnPostLoadMap(UWorld* World)
 		{
 			FString LevelName = UGameplayStatics::GetCurrentLevelName(World); 
 			UE_LOG(LogSpudSubsystem, Verbose, TEXT("OnPostLoadMap restore: %s"),
-			       *LevelName);
+				*LevelName);
 
 			auto State = GetActiveState();
 			PreLevelRestore.Broadcast(LevelName);
@@ -203,8 +212,6 @@ void USpudSubsystem::OnPostLoadMap(UWorld* World)
 			UE_LOG(LogSpudSubsystem, Log, TEXT("Load: Success"));
 		}
 	}
-
-	PostTravelToNewMap.Broadcast();
 }
 
 void USpudSubsystem::SaveGame(const FString& SlotName, const FText& Title, bool bTakeScreenshot, const USpudCustomSaveInfo* ExtraInfo)
@@ -485,7 +492,7 @@ void USpudSubsystem::LoadGame(const FString& SlotName, const bool NoReloadWorld)
 		// state before calling LoadGame.
 		UE_LOG(LogSpudSubsystem, Verbose, TEXT("Continuing with loading map: %s"), *State->GetPersistentLevel());
 		UnsubscribeLevelObjectEvents(GetWorld()->GetCurrentLevel());
-		OnPostLoadMap(GetWorld());
+		DoRestoreForWorld(GetWorld());
 	}
 	else
 	{
