@@ -930,7 +930,7 @@ FString SpudPropertyUtil::ReadActorRefPropertyData(FObjectProperty* OProp, void*
 
 FString SpudPropertyUtil::ReadNestedUObjectPropertyData(FObjectProperty* OProp, void* Data,
 														const RuntimeObjectMap* RuntimeObjects,
-														ULevel* Level, const FSpudClassMetadata& Meta,
+														UObject* RootObject, ULevel* Level, const FSpudClassMetadata& Meta,
 														FArchive& In)
 {
 	uint32 ClassID;
@@ -968,7 +968,7 @@ FString SpudPropertyUtil::ReadNestedUObjectPropertyData(FObjectProperty* OProp, 
 				return Ret;
 			}
 
-			Object = NewObject<UObject>(OProp->GetOwnerUObject(), Class);
+			Object = NewObject<UObject>(RootObject, Class);
 			OProp->SetObjectPropertyValue(Data, Object);
 			Ret = ClassName;
 		}
@@ -1017,7 +1017,7 @@ FString SpudPropertyUtil::ReadSubclassOfPropertyData(FObjectProperty* OProp, voi
 
 bool SpudPropertyUtil::TryReadUObjectPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
 												  const RuntimeObjectMap* RuntimeObjects, const WorldLevelsMap* WorldLevels,
-                                                  ULevel* Level, const FSpudClassMetadata& Meta, int Depth, FArchive& In)
+                                                  UObject* RootObject, ULevel* Level, const FSpudClassMetadata& Meta, int Depth, FArchive& In)
 {
 	auto OProp = CastField<FObjectProperty>(Prop);
 	if (OProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true)) // we ignore array flag since we could be processing inner
@@ -1036,7 +1036,7 @@ bool SpudPropertyUtil::TryReadUObjectPropertyData(FProperty* Prop, void* Data, c
 		}
 		else
 		{
-			const FString Val = ReadNestedUObjectPropertyData(OProp, Data, RuntimeObjects, Level, Meta, In);
+			const FString Val = ReadNestedUObjectPropertyData(OProp, Data, RuntimeObjects, RootObject, Level, Meta, In);
 			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *Val);
 		}
 		return true;
@@ -1273,7 +1273,7 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 			ULevel* Level = nullptr;
 			if (auto Actor = Cast<AActor>(RootObject))
 				Level = Actor->GetLevel();
-			bUpdateOK = TryReadUObjectPropertyData(Property, DataPtr, StoredProperty, RuntimeObjects, WorldLevels, Level, Meta, Depth, DataIn) ||
+			bUpdateOK = TryReadUObjectPropertyData(Property, DataPtr, StoredProperty, RuntimeObjects, WorldLevels, RootObject, Level, Meta, Depth, DataIn) ||
 						TryReadSoftObjectPropertyData(Property, DataPtr, StoredProperty, RuntimeObjects, WorldLevels, Level, Meta, Depth, DataIn) ||
 						TryReadMulticastDelegatePropertyData(Property, DataPtr, StoredProperty, RuntimeObjects, WorldLevels, Level, Meta, Depth, DataIn);
 		}
