@@ -114,12 +114,4 @@ public:
 	/// This is called for root objects and nested UObjects
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "SPUD")
     void SpudPostRestore(const USpudState* State);
-
-
-	/// Called after an actor has been respawned in restore and before the actors constructors are called and any properties are restored.
-	/// Useful for letting an actor know it is being restored and to not do something in the construction phase.
-	/// For example: the actor usually creates a shield mesh actor when it spawns but that shield will be in the restore data so
-	/// instead of creating a new shield, just use the restored one.
-	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "SPUD")
-	void SpudPreRespawnActor();
 };
