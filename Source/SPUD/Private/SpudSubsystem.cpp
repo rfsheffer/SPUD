@@ -126,6 +126,26 @@ void USpudSubsystem::NotifyLevelUnloadedExternally(ULevel* Level)
 	HandleLevelUnloaded(Level);
 }
 
+FString USpudSubsystem::GetSPUDLevelName(ULevel* Level)
+{
+	return GetActiveState()->GetLevelName(Level);
+}
+
+void USpudSubsystem::AssignNameToLevel(ULevel* Level, const FString& NameToAssign)
+{
+	GetActiveState()->AssignNameToLevel(Level, NameToAssign);
+}
+
+void USpudSubsystem::UnassignNameFromLevel(ULevel* Level)
+{
+	GetActiveState()->UnassignNameFromLevel(Level);
+}
+
+void USpudSubsystem::ClearAssignedNameToLevels()
+{
+	GetActiveState()->ClearAssignedNameToLevels();
+}
+
 void USpudSubsystem::LoadLatestSaveGame()
 {
 	auto Latest = GetLatestSaveGame();
@@ -416,7 +436,7 @@ void USpudSubsystem::StoreWorld(UWorld* World, bool bReleaseLevels, bool bBlocki
 
 void USpudSubsystem::StoreLevel(ULevel* Level, bool bRelease, bool bBlocking)
 {
-	const FString LevelName = USpudState::GetLevelName(Level);
+	const FString LevelName = GetActiveState()->GetLevelName(Level);
 	PreLevelStore.Broadcast(LevelName);
 	GetActiveState()->StoreLevel(Level, bRelease, bBlocking);
 	PostLevelStore.Broadcast(LevelName, true);

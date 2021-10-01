@@ -207,37 +207,45 @@ public:
 	static void VisitPersistentProperties(UObject* RootObject, PropertyVisitor& Visitor, int StartDepth = 0);
 	/// Visit all properties of a class definition, with no instance
 	static void VisitPersistentProperties(const UStruct* Definition, PropertyVisitor& Visitor);
+
+	/// World reference lookups used in store and restore
+	/// The SPUD state prepares this structure for the calls.
+	struct FWorldReferenceLookups
+	{
+		const TMap<FGuid, UObject*>* RuntimeObjectMap = nullptr;
+		const TMap<FString, ULevel*>* WorldLevelsMap = nullptr;
+		const TMap<TWeakObjectPtr<ULevel>, FString>* WorldLevelToNameMap = nullptr;
+	};
 	
 	static void StoreProperty(const UObject* RootObject, FProperty* Property, uint32 PrefixID,
                              const void* ContainerPtr, int Depth,
-                             FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FMemoryWriter& Out);
+                             FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+                             const FWorldReferenceLookups& WorldReferenceLookups,
+                             FSpudClassMetadata& Meta, FMemoryWriter& Out);
 	static void StoreArrayProperty(FArrayProperty* AProp, const UObject* RootObject, uint32 PrefixID,
                                  const void* ContainerPtr, int Depth, FSpudClassDef& ClassDef,
-                                 TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FMemoryWriter& Out);
+                                 TArray<uint32>& PropertyOffsets,
+                                 const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
+                                 FMemoryWriter& Out);
 	static void StoreContainerProperty(FProperty* Property, const UObject* RootObject,
 	                                   uint32 PrefixID, const void* ContainerPtr, bool bIsArrayElement, int Depth,
-	                                   FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FMemoryWriter& Out);
-
-
-	typedef TMap<FGuid, UObject*> RuntimeObjectMap;
-	typedef TMap<FName, ULevel*> WorldLevelsMap;
+	                                   FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+	                                   const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
+	                                   FMemoryWriter& Out);
 	
 	static void RestoreProperty(UObject* RootObject, FProperty* Property, void* ContainerPtr,
 	                            const FSpudPropertyDef& StoredProperty,
-	                            const RuntimeObjectMap* RuntimeObjects,
-	                            const WorldLevelsMap* WorldLevels,
+	                            const FWorldReferenceLookups& WorldReferenceLookups,
 	                            const FSpudClassMetadata& Meta,
 	                            int Depth, FMemoryReader& DataIn);
 	static void RestoreArrayProperty(UObject* RootObject, FArrayProperty* const AProp, void* ContainerPtr,
 	                                 const FSpudPropertyDef& StoredProperty,
-	                                 const RuntimeObjectMap* RuntimeObjects,
-	                                 const WorldLevelsMap* WorldLevels,
+	                                 const FWorldReferenceLookups& WorldReferenceLookups,
 	                                 const FSpudClassMetadata& Meta,
 	                                 int Depth, FMemoryReader& DataIn);
 	static void RestoreContainerProperty(UObject* RootObject, FProperty* const Property,
 	                                     void* ContainerPtr, const FSpudPropertyDef& StoredProperty,
-	                                     const RuntimeObjectMap* RuntimeObjects,
-	                                     const WorldLevelsMap* WorldLevels,
+	                                     const FWorldReferenceLookups& WorldReferenceLookups,
 	                                     const FSpudClassMetadata& Meta,
 	                                     int Depth, FMemoryReader& DataIn);
 
@@ -306,12 +314,13 @@ protected:
 	                                     FArchive& Out);
 	static bool TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
 										       int Depth, FSpudClassDef& ClassDef,TArray<uint32>& PropertyOffsets,
-										       const AActor* referencingActor, FSpudClassMetadata& Meta,
+										       const AActor* referencingActor,
+										       const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
 										       FArchive& Out);
 	static FString WriteActorRefPropertyData(FObjectProperty* OProp, AActor* Actor, FPlatformTypes::uint32 PrefixID, const void* Data,
 	                                         bool bIsArrayElement, FSpudClassDef& ClassDef,
 	                                         TArray<uint32>& PropertyOffsets, const AActor* referencingActor,
-	                                         FSpudClassMetadata& Meta, FArchive& Out);
+	                                         const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta, FArchive& Out);
 	static FString WriteNestedUObjectPropertyData(FObjectProperty* OProp, UObject* UObj, FPlatformTypes::uint32 PrefixID, const void* Data,
 											bool bIsArrayElement, FSpudClassDef& ClassDef,
 											TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
@@ -320,10 +329,13 @@ protected:
 											TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
 	static bool TryWriteUObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
 	                                       int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
-	                                       const AActor* referencingActor, FSpudClassMetadata& Meta, FArchive& Out);
+	                                       const AActor* referencingActor,
+	                                       const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
+	                                       FArchive& Out);
 	static bool TryWriteMulticastDelegatePropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
 	                                       int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
-	                                       const AActor* referencingActor, FSpudClassMetadata& Meta,
+	                                       const AActor* referencingActor,
+	                                       const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
 	                                       FArchive& Out);
 
 	
@@ -404,19 +416,20 @@ protected:
 	static bool TryReadEnumPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
 	                                    int Depth, FArchive& In);
 	static bool TryReadSoftObjectPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
-											  const RuntimeObjectMap* RuntimeObjects, const WorldLevelsMap* WorldLevels,
+											  const FWorldReferenceLookups& WorldReferenceLookups,
 										      ULevel* Level, const FSpudClassMetadata& Meta, int Depth, FArchive& In);
 	static bool TryReadMulticastDelegatePropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
-													const RuntimeObjectMap* RuntimeObjects, const WorldLevelsMap* WorldLevels,
+													const FWorldReferenceLookups& WorldReferenceLookups,
 													ULevel* Level, const FSpudClassMetadata& Meta, int Depth, FArchive& In);
-	static FString ReadActorRefPropertyData(::FObjectProperty* OProp, void* Data, const RuntimeObjectMap* RuntimeObjects,
-											const WorldLevelsMap* WorldLevels, ULevel* Level, FArchive& In);
-	static FString ReadNestedUObjectPropertyData(::FObjectProperty* OProp, void* Data, const RuntimeObjectMap* RuntimeObjects,
+	static FString ReadActorRefPropertyData(::FObjectProperty* OProp, void* Data,
+											const FWorldReferenceLookups& WorldReferenceLookups,
+											ULevel* Level, FArchive& In);
+	static FString ReadNestedUObjectPropertyData(::FObjectProperty* OProp, void* Data, const FWorldReferenceLookups& WorldReferenceLookups,
 		UObject* RootObject, ULevel* Level, const FSpudClassMetadata& Meta, FArchive& In);
-	static FString ReadSubclassOfPropertyData(::FObjectProperty* OProp, void* Data, const RuntimeObjectMap* RuntimeObjects,
+	static FString ReadSubclassOfPropertyData(::FObjectProperty* OProp, void* Data, const FWorldReferenceLookups& WorldReferenceLookups,
 		ULevel* Level, const FSpudClassMetadata& Meta, FArchive& In);
 	static bool TryReadUObjectPropertyData(::FProperty* Prop, void* Data, const ::FSpudPropertyDef& StoredProperty,
-	                                        const RuntimeObjectMap* RuntimeObjects, const WorldLevelsMap* WorldLevels,
+	                                        const FWorldReferenceLookups& WorldReferenceLookups,
 	                                        UObject* RootObject, ULevel* Level, const FSpudClassMetadata& Meta, int Depth, FArchive& In);
 
 public:
@@ -448,7 +461,7 @@ public:
 	}
 
 	static AActor* GetReferencedActor(const FString& LevelRefString, const FString& ActorRefString,
-									  const RuntimeObjectMap* RuntimeObjects, const WorldLevelsMap* WorldLevels,
+									  const FWorldReferenceLookups& WorldReferenceLookups,
 									  ULevel* Level, const FString& ReferencingPropertyName)
 	{
 		AActor* FoundActor = nullptr;
@@ -459,12 +472,12 @@ public:
 			{
 				// Runtime object, identified by GUID
 				// We used the braces-format GUID for runtime objects so that it's easy to identify
-				if (RuntimeObjects)
+				if (WorldReferenceLookups.RuntimeObjectMap)
 				{
 					FGuid Guid;
 					if (FGuid::ParseExact(ActorRefString, EGuidFormats::DigitsWithHyphensInBraces, Guid))
 					{
-						auto ObjPtr = RuntimeObjects->Find(Guid);
+						auto ObjPtr = WorldReferenceLookups.RuntimeObjectMap->Find(Guid);
 						if (ObjPtr)
 						{
 							FoundActor = CastChecked<AActor>(*ObjPtr);
@@ -487,16 +500,23 @@ public:
 			else
 			{
 				// If LevelRefString is set, try to lookup a current loaded level to search there
-				if(!LevelRefString.IsEmpty() && WorldLevels)
+				if(!LevelRefString.IsEmpty() && WorldReferenceLookups.WorldLevelsMap)
 				{
-					ULevel* const * foundLevel = WorldLevels->Find(*LevelRefString);
-					if(foundLevel)
+					if(WorldReferenceLookups.WorldLevelsMap)
 					{
-						Level = *foundLevel;
+						ULevel* const * foundLevel = WorldReferenceLookups.WorldLevelsMap->Find(*LevelRefString);
+						if(foundLevel)
+						{
+							Level = *foundLevel;
+						}
+						else
+						{
+							// Null the level pointer so the next stage will throw an error.
+							Level = nullptr;
+						}
 					}
 					else
 					{
-						// Null the level pointer so the next stage will throw an error.
 						Level = nullptr;
 					}
 				}
@@ -529,14 +549,14 @@ public:
 	// Attempts to resolve an actor by reference and assign it to the passed in property
 	template <typename T>
 	static bool AssignReferencedActorToProperty(const FString& LevelRefString, const FString& ActorRefString,
-												const RuntimeObjectMap* RuntimeObjects, const WorldLevelsMap* WorldLevels,
+												const FWorldReferenceLookups& WorldReferenceLookups,
 												ULevel* Level, const T* ObjProp, void* Data)
 	{
 		// Now we need to find the actual object
 		AActor* foundActor = nullptr;
 		if (!ActorRefString.IsEmpty())
 		{
-			foundActor = GetReferencedActor(LevelRefString, ActorRefString, RuntimeObjects, WorldLevels, Level, ObjProp->GetName());
+			foundActor = GetReferencedActor(LevelRefString, ActorRefString, WorldReferenceLookups, Level, ObjProp->GetName());
 		}
 
 		ObjProp->SetObjectPropertyValue(Data, foundActor);
@@ -550,7 +570,9 @@ public:
 	/// Get an actors referencing string that can be used at load time to re-reference the actor.
 	/// Returns true if the reference if valid to use, otherwise false if the reference could not be created.
 	/// Will return true if the Actor was null, and RefStringOut will be an empty string.
-	static bool GetActorReferenceString(AActor* Actor, const AActor* referencingActor, FString& LevelReferenceString, FString& ActorReferenceString);
+	static bool GetActorReferenceString(AActor* Actor, const AActor* referencingActor,
+									    const FWorldReferenceLookups& WorldReferenceLookups,
+									    FString& LevelReferenceString, FString& ActorReferenceString);
 	/// Get the SpudGuid property value of an object, if it has one (blank otherwise)
 	static FGuid GetGuidProperty(const UObject* Obj);
 	/// Get the SpudGuid property value of an object, from a previously found property (blank if null)

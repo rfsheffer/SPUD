@@ -43,6 +43,28 @@ void USpudState::StoreLevel(ULevel* Level, bool bRelease, bool bBlocking)
 		// Mutex lock the level (load and unload events on streaming can be in loading threads)
 		FScopeLock LevelLock(&LevelData->Mutex);
 
+		TArray<ULevel*> LevelsToRemoveFromNameList;
+	
+		// Setup a cached mapping of level name to level for quicker re-hooking up of cross level references
+		const TArray<ULevel*>& WorldLevels = Level->GetWorld()->GetLevels();
+		WorldLevelsMap.Empty(WorldLevels.Num());
+		for(ULevel* worldLevel : WorldLevels)
+		{
+			const FString WorldLevelName = GetLevelName(worldLevel);
+			if(!WorldLevelName.IsEmpty())
+			{
+				WorldLevelsMap.Add(WorldLevelName, worldLevel);
+
+				// Setup the names list with all levels so level references can be established down the line
+				// We will clear those out once we are done.
+				if(!WorldLevelsToName.Contains(worldLevel))
+				{
+					WorldLevelsToName.Add(worldLevel, WorldLevelName);
+					LevelsToRemoveFromNameList.Add(worldLevel);
+				}
+			}
+		}
+
 		// Clear any existing data for levels being updated from
 		// Which is either the specific level, or all loaded levels
 		if (LevelData)
@@ -58,6 +80,14 @@ void USpudState::StoreLevel(ULevel* Level, bool bRelease, bool bBlocking)
 				StoreActor(Actor, LevelData);
 			}					
 		}
+
+		// Remove the levels we added temporarily
+		for(ULevel* levelToRem : LevelsToRemoveFromNameList)
+		{
+			WorldLevelsToName.Remove(levelToRem);
+		}
+	
+		WorldLevelsMap.Empty();
 	}
 
 	if (bRelease)
@@ -80,7 +110,7 @@ bool USpudState::StorePropertyVisitor::VisitProperty(UObject* RootObject, FPrope
                                                                     uint32 CurrentPrefixID, void* ContainerPtr,
                                                                     int Depth)
 {
-	SpudPropertyUtil::StoreProperty(RootObject, Property, CurrentPrefixID, ContainerPtr, Depth, ClassDef, PropertyOffsets, Meta, Out);
+	SpudPropertyUtil::StoreProperty(RootObject, Property, CurrentPrefixID, ContainerPtr, Depth, ClassDef, PropertyOffsets, ParentState->GetWorldReferenceLookups(), Meta, Out);
 
 	StoreNestedUObjectIfNeeded(RootObject, Property, CurrentPrefixID, ContainerPtr, Depth);
 	
@@ -199,20 +229,22 @@ void USpudState::WriteCoreActorData(AActor* Actor, FArchive& Out) const
 
 }
 
-FString USpudState::GetLevelName(const ULevel* Level)
+FString USpudState::GetLevelName(ULevel* Level)
 {
-	// FName isn't good enough, it's "PersistentLevel" rather than the actual map name
-	// Using the Outer to get the package name does it, same as for any other object
-	return GetLevelNameForObject(Level);
-}
-FString USpudState::GetLevelNameForObject(const UObject* Obj)
-{
+	// Fist see if the user has requested a specific name assigned to this level
+	// They do this to setup unique IDs for thier instanced levels.
+	FString* RequestedLevelName = WorldLevelsToName.Find(Level);
+	if(RequestedLevelName)
+	{
+		return *RequestedLevelName;
+	}
+	
 	// Detect what level an object originated from
 	// GetLevel()->GetName / GetFName() returns "PersistentLevel" all the time
 	// GetLevel()->GetPathName returns e.g. /Game/Maps/[UEDPIE_0_]TestAdventureMap.TestAdventureMap:PersistentLevel
 	// Outer is "PersistentLevel"
 	// Outermost is "/Game/Maps/[UEDPIE_0_]TestAdventureStream0" so that's what we want
-	const auto OuterMost = Obj->GetOutermost();
+	const auto OuterMost = Level->GetOutermost();
 	if (OuterMost)
 	{
 		FString LevelName;
@@ -222,10 +254,18 @@ FString USpudState::GetLevelNameForObject(const UObject* Obj)
 			LevelName = LevelName.Right(LevelName.Len() - 9);
 		return LevelName;
 	}
-	else
+	
+	return FString();
+}
+
+FString USpudState::GetLevelNameForActor(const AActor* Obj)
+{
+	if(Obj)
 	{
-		return FString();
-	}	
+		return GetLevelName(Obj->GetLevel());
+	}
+
+	return FString();
 }
 
 FSpudSaveData::TLevelDataPtr USpudState::GetLevelData(const FString& LevelName, bool AutoCreate)
@@ -313,7 +353,7 @@ void USpudState::StoreActor(AActor* Obj)
 	if (Obj->HasAnyFlags(RF_ClassDefaultObject|RF_ArchetypeObject|RF_BeginDestroyed))
 		return;
 
-	const FString LevelName = GetLevelNameForObject(Obj);
+	const FString LevelName = GetLevelNameForActor(Obj);
 
 	auto LevelData = GetLevelData(LevelName, true);
 	StoreActor(Obj, LevelData);
@@ -322,7 +362,7 @@ void USpudState::StoreActor(AActor* Obj)
 
 void USpudState::StoreLevelActorDestroyed(AActor* Actor)
 {
-	const FString LevelName = GetLevelNameForObject(Actor);
+	const FString LevelName = GetLevelNameForActor(Actor);
 
 	auto LevelData = GetLevelData(LevelName, true);
 	StoreLevelActorDestroyed(Actor, LevelData);
@@ -436,15 +476,26 @@ void USpudState::RestoreLevel(ULevel* Level)
 	
 	UE_LOG(LogSpudState, Verbose, TEXT("RESTORE level %s - Start"), *LevelName);
 
+	TArray<ULevel*> LevelsToRemoveFromNameList;
+	
 	// Setup a cached mapping of level name to level for quicker re-hooking up of cross level references
 	const TArray<ULevel*>& WorldLevels = Level->GetWorld()->GetLevels();
+	WorldLevelsMap.Empty(WorldLevels.Num());
 	for(ULevel* worldLevel : WorldLevels)
 	{
-		if(worldLevel == nullptr || worldLevel->GetOutermost() == nullptr)
+		const FString WorldLevelName = GetLevelName(worldLevel);
+		if(!WorldLevelName.IsEmpty())
 		{
-			continue;
+			WorldLevelsMap.Add(WorldLevelName, worldLevel);
+
+			// Setup the names list with all levels so level references can be established down the line
+			// We will clear those out once we are done.
+			if(!WorldLevelsToName.Contains(worldLevel))
+			{
+				WorldLevelsToName.Add(worldLevel, WorldLevelName);
+				LevelsToRemoveFromNameList.Add(worldLevel);
+			}
 		}
-		WorldLevelsMap.Add(worldLevel->GetOuter()->GetFName(), worldLevel);
 	}
 
 	RestoreLevelSpawnedActors(Level, LevelName, LevelData);
@@ -454,6 +505,12 @@ void USpudState::RestoreLevel(ULevel* Level)
 	for (auto&& DestroyedActor : LevelData->DestroyedActors.Values)
 	{
 		DestroyActor(DestroyedActor, Level);			
+	}
+
+	// Remove the levels we added temporarily
+	for(ULevel* levelToRem : LevelsToRemoveFromNameList)
+	{
+		WorldLevelsToName.Remove(levelToRem);
 	}
 	
 	WorldLevelsMap.Empty();
@@ -515,7 +572,7 @@ bool USpudState::PreLoadLevelData(const FString& LevelName)
 	if (Actor->HasAnyFlags(RF_ClassDefaultObject|RF_ArchetypeObject|RF_BeginDestroyed))
 		return;
 
-	const FString LevelName = GetLevelNameForObject(Actor);
+	const FString LevelName = GetLevelNameForActor(Actor);
 
 	auto LevelData = GetLevelData(LevelName, false);
 	if (!LevelData.IsValid())
@@ -883,7 +940,7 @@ bool USpudState::RestoreFastPropertyVisitor::VisitProperty(UObject* RootObject, 
 	if (StoredPropertyIterator)
 	{
 		auto& StoredProperty = *StoredPropertyIterator;
-		SpudPropertyUtil::RestoreProperty(RootObject, Property, ContainerPtr, StoredProperty, RuntimeObjects, &ParentState->WorldLevelsMap, Meta, Depth, DataIn);
+		SpudPropertyUtil::RestoreProperty(RootObject, Property, ContainerPtr, StoredProperty, ParentState->GetWorldReferenceLookups(), Meta, Depth, DataIn);
 
 		// We DON'T increment the property iterator for custom structs, since they don't have any values of their own
 		// It's their nested properties that have the values, they're only context
@@ -937,7 +994,7 @@ bool USpudState::RestoreSlowPropertyVisitor::VisitProperty(UObject* RootObject, 
 	}
 	auto& StoredProperty = ClassDef.Properties[*PropertyIndexPtr];
 
-	SpudPropertyUtil::RestoreProperty(RootObject, Property, ContainerPtr, StoredProperty, RuntimeObjects, &ParentState->WorldLevelsMap, Meta, Depth, DataIn);
+	SpudPropertyUtil::RestoreProperty(RootObject, Property, ContainerPtr, StoredProperty, ParentState->GetWorldReferenceLookups(), Meta, Depth, DataIn);
 
 	RestoreNestedUObjectIfNeeded(RootObject, Property, CurrentPrefixID, ContainerPtr, Depth);
 	
@@ -983,6 +1040,7 @@ void USpudState::RestoreLoadedWorld(UWorld* World, bool bSingleLevel, const FStr
 		UE_LOG(LogSpudState, Verbose, TEXT("FULL WORLD RESTORE - Start"));
 		WorldLevelsMap.Empty(LevelsToRestore.Num());
 		RuntimeObjectsByGuid.Empty();
+		TArray<ULevel*> LevelsToRemoveFromNameList;
 		
 		// Full world restore. First restore all runtime actors so we have a complete GUID mapping of them
 		for(ULevel* LevelToRestore : LevelsToRestore)
@@ -990,9 +1048,17 @@ void USpudState::RestoreLoadedWorld(UWorld* World, bool bSingleLevel, const FStr
 			if (!IsValid(LevelToRestore))
 				return;
 
-			WorldLevelsMap.Add(LevelToRestore->GetOuter()->GetFName(), LevelToRestore);
-	
 			FString LevelName = GetLevelName(LevelToRestore);
+			WorldLevelsMap.Add(LevelName, LevelToRestore);
+
+			// Setup the names list with all levels so level references can be established down the line
+			// We will clear those out once we are done.
+			if(!WorldLevelsToName.Contains(LevelToRestore))
+			{
+				WorldLevelsToName.Add(LevelToRestore, LevelName);
+				LevelsToRemoveFromNameList.Add(LevelToRestore);
+			}
+			
 			auto LevelData = GetLevelData(LevelName, false);
 
 			if (!LevelData.IsValid())
@@ -1036,6 +1102,12 @@ void USpudState::RestoreLoadedWorld(UWorld* World, bool bSingleLevel, const FStr
 			}
 
 			UE_LOG(LogSpudState, Verbose, TEXT("RESTORE level %s - Complete"), *LevelName);
+		}
+
+		// Remove the levels we added temporarily
+		for(ULevel* levelToRem : LevelsToRemoveFromNameList)
+		{
+			WorldLevelsToName.Remove(levelToRem);
 		}
 
 		WorldLevelsMap.Empty();
@@ -1223,7 +1295,7 @@ bool USpudState::GetActorReferenceString(AActor* ActorToReference, const AActor*
 		ActorReferenceString.Empty();
 		return false;
 	}
-	if(!SpudPropertyUtil::GetActorReferenceString(ActorToReference, ReferencingActor, LevelReferenceString, ActorReferenceString))
+	if(!SpudPropertyUtil::GetActorReferenceString(ActorToReference, ReferencingActor, GetWorldReferenceLookups(), LevelReferenceString, ActorReferenceString))
 	{
 		UE_LOG(LogSpudState, Warning, TEXT("Unable to determine actor reference string for: '%s'. Add SpudGuid to be able to reference this actor!"), *ActorToReference->GetPathName());
 		return false;
@@ -1246,8 +1318,7 @@ AActor* USpudState::GetReferenceStringActor(const FString& LevelReferenceString,
 	
 	AActor* refActor = SpudPropertyUtil::GetReferencedActor(LevelReferenceString,
 															ActorReferenceString,
-															&RuntimeObjectsByGuid,
-															&WorldLevelsMap,
+															GetWorldReferenceLookups(),
 															ReferencingActor->GetLevel(),
 															ReferencingActor->GetPathName());
 	if(!refActor)
@@ -1258,6 +1329,36 @@ AActor* USpudState::GetReferenceStringActor(const FString& LevelReferenceString,
 	return refActor;
 }
 
+void USpudState::AssignNameToLevel(ULevel* Level, const FString& NameToAssign)
+{
+	if(Level)
+	{
+		WorldLevelsToName.Add(Level, NameToAssign);
+		int32 numFound = 0;
+		for(const TPair<TWeakObjectPtr<ULevel>, FString>& worldLevelPair : WorldLevelsToName)
+		{
+			if(worldLevelPair.Value == NameToAssign)
+			{
+				++numFound;
+			}
+		}
+
+		if(numFound > 1)
+		{
+			UE_LOG(LogSpudState, Error, TEXT("AssignNameToLevel assigning multiple levels the same name. This will cause issues!"));
+		}
+	}
+}
+
+void USpudState::UnassignNameFromLevel(ULevel* Level)
+{
+	WorldLevelsToName.Remove(Level);
+}
+
+void USpudState::ClearAssignedNameToLevels()
+{
+	WorldLevelsToName.Empty();
+}
 
 FString USpudState::GetActiveGameLevelFolder()
 {

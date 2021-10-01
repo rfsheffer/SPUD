@@ -460,6 +460,35 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly)
 	void NotifyLevelUnloadedExternally(ULevel* Level);
 
+	/**
+	 * Return how SPUD would name a level during storing
+	 * If this is a level instance, it will be named with all appendages it would usually have.
+	 * If a level was assigned a new name via AssignNameToLevel, that will be returned.
+	 */
+	UFUNCTION(BlueprintPure, DisplayName = "Get SPUD Level Name")
+	FString GetSPUDLevelName(ULevel* Level);
+
+	/**
+	 * Updates the SPUD state to use a specific name when referencing a level
+	 * This is important when restoring level instances which have unique names.
+	 * Each time SPUD references a levels name OR an actors levels name, the remapping will take precedence before
+	 * determining a name.
+	 */
+	UFUNCTION(BlueprintCallable)
+	void AssignNameToLevel(ULevel* Level, const FString& NameToAssign);
+
+	/**
+	 * Unassign a name from a level. When this level is referenced again it will just the original SPUD level naming.
+	 */
+	UFUNCTION(BlueprintCallable)
+	void UnassignNameFromLevel(ULevel* Level);
+
+	/**
+	 * Will clear out the mapping of level to name assigned with AssignNameToLevel
+	 */
+	UFUNCTION(BlueprintCallable)
+	void ClearAssignedNameToLevels();
+
 	static FString GetSaveGameDirectory();
 	static FString GetSaveGameFilePath(const FString& SlotName);
 	// Lists saves: note that this is only the filenames, not the directory

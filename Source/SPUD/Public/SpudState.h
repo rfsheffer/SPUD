@@ -76,13 +76,30 @@ protected:
 
 	FString Source;
 	
-	// Populated as runtime objects are restored. Kept as a master list of currently restored runtime objects
-	// so other loading levels can reference objects in levels other than thier own.
+	/// Populated as runtime objects are restored. Kept as a master list of currently restored runtime objects
+	/// so other loading levels can reference objects in levels other than thier own.
 	UPROPERTY()
 	TMap<FGuid, UObject*> RuntimeObjectsByGuid;
-	// Populated and valid only during restore time
+	
+	/// Populated and valid only during restore time
 	UPROPERTY()
-	TMap<FName, ULevel*> WorldLevelsMap;
+	TMap<FString, ULevel*> WorldLevelsMap;
+
+	/// A cached and persistent mapping of level to name. This is modifiable by the user so they can assign
+	/// their own unique names for levels for cases such as level instancing. They could have many of the same level
+	/// loaded but with thier own naming convention so many of the same level can be saved and restored.
+	UPROPERTY()
+	TMap<TWeakObjectPtr<ULevel>, FString> WorldLevelsToName;
+
+	/// Consolidate world reference lookups into a FWorldReferenceLookups package
+	SpudPropertyUtil::FWorldReferenceLookups GetWorldReferenceLookups() const
+	{
+		SpudPropertyUtil::FWorldReferenceLookups LookupsOut;
+		LookupsOut.RuntimeObjectMap = &RuntimeObjectsByGuid;
+		LookupsOut.WorldLevelsMap = &WorldLevelsMap;
+		LookupsOut.WorldLevelToNameMap = &WorldLevelsToName;
+		return LookupsOut;
+	}
 
 	void WriteCoreActorData(AActor* Actor, FArchive& Out) const;
 
@@ -196,8 +213,8 @@ protected:
 
 public:
 
-	static FString GetLevelName(const ULevel* Level);
-	static FString GetLevelNameForObject(const UObject* Obj);
+	FString GetLevelName(ULevel* Level);
+	FString GetLevelNameForActor(const AActor* Obj);
 
 	USpudState();
 
@@ -384,7 +401,15 @@ public:
 	/// This may not resolve if the required level is not loaded.
 	UFUNCTION(BlueprintCallable)
 	AActor* GetReferenceStringActor(const FString& LevelReferenceString, const FString& ActorReferenceString, AActor* ReferencingActor) const;
-	
+
+	/// Updates the mapping of level to name.
+	void AssignNameToLevel(ULevel* Level, const FString& NameToAssign);
+
+	/// Removes the mapping of this level to a name
+	void UnassignNameFromLevel(ULevel* Level);
+
+	/// Clears out the mapping of level to name.
+	void ClearAssignedNameToLevels();
 };
 
 /// Custom data that can be stored alongside properties for a UObject to handle anything else
@@ -759,16 +784,10 @@ struct FSpudStoreRestoreHelpers
 	{
 		if(custom_data->CanWrite())
 		{
-			//FString actorRefStr;
-			//state->GetActorReferenceString(actor.Get(), actorRefStr);
-			//custom_data->Write(actorRefStr);
 			StoreActorReference(referingActor, state, custom_data, actor);
 		}
 		else
 		{
-			//FString actorRefStr;
-			//custom_data->Read(actorRefStr);
-			//actor = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
 			RestoreActorReference(referingActor, state, custom_data, actor);
 		}
 	}
@@ -798,16 +817,10 @@ struct FSpudStoreRestoreHelpers
 	{
 		if(custom_data->CanWrite())
 		{
-			//FString actorRefStr;
-			//state->GetActorReferenceString(actor, actorRefStr);
-			//custom_data->Write(actorRefStr);
 			StoreActorReference(referingActor, state, custom_data, actor);
 		}
 		else
 		{
-			//FString actorRefStr;
-			//custom_data->Read(actorRefStr);
-			//actor = Cast<T>(state->GetReferenceStringActor(actorRefStr, referingActor));
 			RestoreActorReference(referingActor, state, custom_data, actor);
 		}
 	}
