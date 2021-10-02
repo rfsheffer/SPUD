@@ -1460,7 +1460,7 @@ bool SpudPropertyUtil::GetActorReferenceString(AActor* Actor, const AActor* refe
 
 			// References to level actors uses their unique name (so no need for a SpudGuid property)
 			ActorReferenceString = GetLevelActorName(Actor);
-			if(Actor->GetLevel() != referencingActor->GetLevel())
+			if(!referencingActor || Actor->GetLevel() != referencingActor->GetLevel())
 			{
 				if(WorldReferenceLookups.WorldLevelToNameMap)
 				{
