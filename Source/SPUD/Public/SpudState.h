@@ -352,7 +352,7 @@ public:
 
 	/// Set the screenshot data for this save		
 	UFUNCTION(BlueprintCallable)
-	void SetScreenshot(TArray<uint8>& ImgData);
+	void SetScreenshot(const TArray<uint8>& ImgData);
 
 
 	/// Rename a class in this save data

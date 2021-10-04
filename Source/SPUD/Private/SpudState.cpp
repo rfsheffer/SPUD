@@ -1384,7 +1384,7 @@ void USpudState::SetCustomSaveInfo(const USpudCustomSaveInfo* ExtraInfo)
 	}
 }
 
-void USpudState::SetScreenshot(TArray<uint8>& ImgData)
+void USpudState::SetScreenshot(const TArray<uint8>& ImgData)
 {
 	auto& Scr = SaveData.Info.Screenshot;
 	Scr.ImageData = ImgData;

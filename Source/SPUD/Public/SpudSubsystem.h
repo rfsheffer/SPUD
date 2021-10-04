@@ -297,6 +297,14 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly)
     bool DeleteSave(const FString& SlotName);
 
+	/// Allows updating the save games info
+	/// @param SlotName The slot to update
+	/// @param Title The new title
+	/// @param ExtraInfo If not NONE, updates the extra info
+	/// @param ScreenshotData If not empty, updates the screenshot data
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly)
+	void UpdateSaveGameInfo(const FString& SlotName, const FText& Title, const TArray<uint8>& ScreenshotData, const USpudCustomSaveInfo* ExtraInfo = nullptr);
+
 	/**
 	* Add a global object to the list of objects which will have their state saved / loaded
 	* Level actors which implement ISpudObject will automatically be saved/loaded but global objects like GameInstance
@@ -364,15 +372,15 @@ public:
 
 	/// Get info about the quick save game, may return null if none
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly)
-    USpudSaveGameInfo* GetQuickSaveGame();
+    USpudSaveGameInfo* GetQuickSaveGame(const bool complainNotFound = true);
 
 	/// Get info about the auto save game, may return null if none
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly)
-    USpudSaveGameInfo* GetAutoSaveGame();
+    USpudSaveGameInfo* GetAutoSaveGame(const bool complainNotFound = true);
 
 	/// Get information about a specific save game slot
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly)
-	USpudSaveGameInfo* GetSaveGameInfo(const FString& SlotName);
+	USpudSaveGameInfo* GetSaveGameInfo(const FString& SlotName, const bool complainNotFound = true);
 
 
 	/// By default you're not allowed to interrupt save / load operations and any requests received while another is

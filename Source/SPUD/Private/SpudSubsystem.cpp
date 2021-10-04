@@ -539,6 +539,45 @@ bool USpudSubsystem::DeleteSave(const FString& SlotName)
 	return FileMgr.Delete(*GetSaveGameFilePath(SlotName), false, true);
 }
 
+void USpudSubsystem::UpdateSaveGameInfo(const FString& SlotName, const FText& Title, const TArray<uint8>& ScreenshotData, const USpudCustomSaveInfo* ExtraInfo)
+{
+	IFileManager& FileMgr = IFileManager::Get();
+	const FString AbsoluteFilename = GetSaveGameFilePath(SlotName);
+	auto Archive = TUniquePtr<FArchive>(FileMgr.CreateFileReader(*AbsoluteFilename));
+
+	if(Archive)
+	{
+		USpudState* State = NewObject<USpudState>();
+		// Load all data because we want to upgrade
+		State->LoadFromArchive(*Archive, true);
+		Archive->Close();
+
+		if (Archive->IsError() || Archive->IsCriticalError())
+		{
+			UE_LOG(LogSpudSubsystem, Error, TEXT("Error while loading game '%s' to update the info"), *AbsoluteFilename);
+			return;
+		}
+
+		// Update the state
+		State->SetTitle(Title);
+		if(ExtraInfo)
+		{
+			State->SetCustomSaveInfo(ExtraInfo);
+		}
+		if(ScreenshotData.Num() > 0)
+		{
+			State->SetScreenshot(ScreenshotData);
+		}
+		
+		// Now save
+		auto OutArchive = TUniquePtr<FArchive>(FileMgr.CreateFileWriter(*AbsoluteFilename));
+		if (OutArchive)
+		{
+			State->SaveToArchive(*OutArchive);
+		}
+	}
+}
+
 void USpudSubsystem::AddPersistentGlobalObject(UObject* Obj)
 {
 	GlobalObjects.AddUnique(TWeakObjectPtr<UObject>(Obj));	
@@ -928,7 +967,7 @@ TArray<USpudSaveGameInfo*> USpudSubsystem::GetSaveGameList(bool bIncludeQuickSav
 	return Ret;
 }
 
-USpudSaveGameInfo* USpudSubsystem::GetSaveGameInfo(const FString& SlotName)
+USpudSaveGameInfo* USpudSubsystem::GetSaveGameInfo(const FString& SlotName, const bool complainNotFound)
 {
 	IFileManager& FM = IFileManager::Get();
 	// We want to parse just the very first part of the file, not all of it
@@ -937,7 +976,10 @@ USpudSaveGameInfo* USpudSubsystem::GetSaveGameInfo(const FString& SlotName)
 
 	if(!Archive)
 	{
-		UE_LOG(LogSpudSubsystem, Error, TEXT("Unable to open %s for reading info"), *AbsoluteFilename);
+		if(complainNotFound)
+		{
+			UE_LOG(LogSpudSubsystem, Error, TEXT("Unable to open %s for reading info"), *AbsoluteFilename);
+		}
 		return nullptr;
 	}
 		
@@ -963,14 +1005,14 @@ USpudSaveGameInfo* USpudSubsystem::GetLatestSaveGame()
 }
 
 
-USpudSaveGameInfo* USpudSubsystem::GetQuickSaveGame()
+USpudSaveGameInfo* USpudSubsystem::GetQuickSaveGame(const bool complainNotFound)
 {
-	return GetSaveGameInfo(SPUD_QUICKSAVE_SLOTNAME);
+	return GetSaveGameInfo(SPUD_QUICKSAVE_SLOTNAME, complainNotFound);
 }
 
-USpudSaveGameInfo* USpudSubsystem::GetAutoSaveGame()
+USpudSaveGameInfo* USpudSubsystem::GetAutoSaveGame(const bool complainNotFound)
 {
-	return GetSaveGameInfo(SPUD_AUTOSAVE_SLOTNAME);
+	return GetSaveGameInfo(SPUD_AUTOSAVE_SLOTNAME, complainNotFound);
 }
 
 FString USpudSubsystem::GetSaveGameDirectory()
