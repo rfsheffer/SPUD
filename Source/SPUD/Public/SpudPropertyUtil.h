@@ -6,7 +6,7 @@
 #include "Serialization/MemoryWriter.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogSpudProps, Log, All);
-
+namespace{
 /// Type info for persistence
 /// Maps a given type to:
 /// 1. An enum value, for describing how the data is stored
@@ -79,7 +79,7 @@ FORCEINLINE const FieldType* ExactCastConstField(const FField* Src)
 {
 	return (Src && (Src->GetClass() == FieldType::StaticClass())) ? static_cast<const FieldType*>(Src) : nullptr;
 }
-
+}
 /// Utility class which does all the nuts & bolts related to property persistence without actually being stateful
 /// Also none of this is exposed to Blueprints, is completely internal to C++ persistence
 class SPUD_API SpudPropertyUtil
