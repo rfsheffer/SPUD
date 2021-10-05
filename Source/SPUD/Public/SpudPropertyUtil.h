@@ -502,21 +502,14 @@ public:
 				// If LevelRefString is set, try to lookup a current loaded level to search there
 				if(!LevelRefString.IsEmpty() && WorldReferenceLookups.WorldLevelsMap)
 				{
-					if(WorldReferenceLookups.WorldLevelsMap)
+					ULevel* const * foundLevel = WorldReferenceLookups.WorldLevelsMap->Find(*LevelRefString);
+					if(foundLevel)
 					{
-						ULevel* const * foundLevel = WorldReferenceLookups.WorldLevelsMap->Find(*LevelRefString);
-						if(foundLevel)
-						{
-							Level = *foundLevel;
-						}
-						else
-						{
-							// Null the level pointer so the next stage will throw an error.
-							Level = nullptr;
-						}
+						Level = *foundLevel;
 					}
 					else
 					{
+						// Null the level pointer so the next stage will throw an error.
 						Level = nullptr;
 					}
 				}
