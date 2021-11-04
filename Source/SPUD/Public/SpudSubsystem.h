@@ -149,6 +149,9 @@ protected:
 	UPROPERTY(BlueprintReadOnly)
 	ESpudSystemState CurrentState = ESpudSystemState::RunningIdle;
 
+	/// Set via SetUserNameFolder and ClearUserNameFolder. So multiple accounts can have different save folders.
+	FString UserNameFolderName;
+
 	// The currently active game state
 	UPROPERTY()
 	USpudState* ActiveState;
@@ -497,10 +500,32 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void ClearAssignedNameToLevels();
 
-	static FString GetSaveGameDirectory();
-	static FString GetSaveGameFilePath(const FString& SlotName);
+	/**
+	 * Sets the user name folder for save games. When set, saves will be stored and queried from the SaveGames/{User Name}/ folder instead of from just SaveGames/
+	 */
+	UFUNCTION(BlueprintCallable)
+	void SetUserNameFolder(const FString userName)
+	{
+		UserNameFolderName = userName;
+	}
+
+	/// Clears the user name folder, reverting to storing and querying save games from the SaveGames/ folder.
+	UFUNCTION(BlueprintCallable)
+	void ClearUserNameFolder()
+	{
+		UserNameFolderName.Empty();
+	}
+
+	UFUNCTION(BlueprintPure)
+	FString GetSaveGameDirectory() const;
+
+	UFUNCTION(BlueprintPure)
+	FString GetSaveGameFilePath(const FString& SlotName) const;
+	
 	// Lists saves: note that this is only the filenames, not the directory
-	static void ListSaveGameFiles(TArray<FString>& OutSaveFileList);
+	UFUNCTION(BlueprintPure)
+	void ListSaveGameFiles(TArray<FString>& OutSaveFileList) const;
+	
 	static FString GetActiveGameFolder();
 	static FString GetActiveGameFilePath(const FString& Name);
 

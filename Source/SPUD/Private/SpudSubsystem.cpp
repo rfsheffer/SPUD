@@ -1015,17 +1015,21 @@ USpudSaveGameInfo* USpudSubsystem::GetAutoSaveGame(const bool complainNotFound)
 	return GetSaveGameInfo(SPUD_AUTOSAVE_SLOTNAME, complainNotFound);
 }
 
-FString USpudSubsystem::GetSaveGameDirectory()
+FString USpudSubsystem::GetSaveGameDirectory() const
 {
+	if(!UserNameFolderName.IsEmpty())
+	{
+		return FString::Printf(TEXT("%sSaveGames/%s/"), *FPaths::ProjectSavedDir(), *UserNameFolderName);
+	}
 	return FString::Printf(TEXT("%sSaveGames/"), *FPaths::ProjectSavedDir());
 }
 
-FString USpudSubsystem::GetSaveGameFilePath(const FString& SlotName)
+FString USpudSubsystem::GetSaveGameFilePath(const FString& SlotName) const
 {
 	return FString::Printf(TEXT("%s%s.sav"), *GetSaveGameDirectory(), *SlotName);
 }
 
-void USpudSubsystem::ListSaveGameFiles(TArray<FString>& OutSaveFileList)
+void USpudSubsystem::ListSaveGameFiles(TArray<FString>& OutSaveFileList) const
 {
 	IFileManager& FM = IFileManager::Get();
 
@@ -1054,8 +1058,17 @@ public:
 	{
 		bool bUpgradeAlways;
 		FSpudUpgradeSaveDelegate UpgradeCallback;
+		TArray<FString> SaveFiles;
+		FString SaveGameDirectory;
 		
-		FUpgradeTask(bool InUpgradeAlways, FSpudUpgradeSaveDelegate InCallback) : bUpgradeAlways(InUpgradeAlways), UpgradeCallback(InCallback) {}
+		FUpgradeTask(const USpudSubsystem* SpudSubSystem, bool InUpgradeAlways, FSpudUpgradeSaveDelegate InCallback)
+			: bUpgradeAlways(InUpgradeAlways)
+			, UpgradeCallback(InCallback)
+		{
+			check(SpudSubSystem);
+			SpudSubSystem->ListSaveGameFiles(SaveFiles);
+			SaveGameDirectory = SpudSubSystem->GetSaveGameDirectory();
+		}
 
 		bool SaveNeedsUpgrading(const USpudState* State)
 		{
@@ -1077,12 +1090,10 @@ public:
 				return;
 			
 			IFileManager& FileMgr = IFileManager::Get();
-			TArray<FString> SaveFiles;
-			USpudSubsystem::ListSaveGameFiles(SaveFiles);
 
 			for (auto && SaveFile : SaveFiles)
 			{
-				FString AbsoluteFilename = FPaths::Combine(USpudSubsystem::GetSaveGameDirectory(), SaveFile);
+				FString AbsoluteFilename = FPaths::Combine(SaveGameDirectory, SaveFile);
 				auto Archive = TUniquePtr<FArchive>(FileMgr.CreateFileReader(*AbsoluteFilename));
 
 				if(Archive)
@@ -1127,11 +1138,11 @@ public:
 
 	FAsyncTask<FUpgradeTask> UpgradeTask;
 
-	FUpgradeAllSavesAction(bool UpgradeAlways, FSpudUpgradeSaveDelegate InUpgradeCallback, const FLatentActionInfo& LatentInfo)
+	FUpgradeAllSavesAction(USpudSubsystem* spudSubSystem, bool UpgradeAlways, FSpudUpgradeSaveDelegate InUpgradeCallback, const FLatentActionInfo& LatentInfo)
         : ExecutionFunction(LatentInfo.ExecutionFunction)
         , OutputLink(LatentInfo.Linkage)
         , CallbackTarget(LatentInfo.CallbackTarget)
-        , UpgradeTask(UpgradeAlways, InUpgradeCallback)
+        , UpgradeTask(spudSubSystem, UpgradeAlways, InUpgradeCallback)
 	{
 		// We do the actual upgrade work in a background task, this action is just to monitor when it's done
 		UpgradeTask.StartBackgroundTask();
@@ -1161,7 +1172,7 @@ void USpudSubsystem::UpgradeAllSaveGames(bool bUpgradeEvenIfNoUserDataModelVersi
 	if (LatentActionManager.FindExistingAction<FUpgradeAllSavesAction>(LatentInfo.CallbackTarget, LatentInfo.UUID) == nullptr)
 	{
 		LatentActionManager.AddNewAction(LatentInfo.CallbackTarget, LatentInfo.UUID,
-		                                 new FUpgradeAllSavesAction(bUpgradeEvenIfNoUserDataModelVersionDifferences,
+		                                 new FUpgradeAllSavesAction(this, bUpgradeEvenIfNoUserDataModelVersionDifferences,
 		                                                            SaveNeedsUpgradingCallback, LatentInfo));
 	}
 }

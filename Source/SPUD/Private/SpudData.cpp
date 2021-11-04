@@ -1031,7 +1031,7 @@ void FSpudSaveData::ReadFromArchive(FSpudChunkedDataArchive& Ar, bool bLoadAllLe
 						{
 							if (bLoadAllLevels)
 							{
-								TLevelDataPtr LvlData(new FSpudLevelData());
+								TLevelDataPtr LvlData = MakeShareable(new FSpudLevelData());
 								LvlData->ReadFromArchive(Ar, Info.SystemVersion);
 								{
 									FScopeLock MapMutex(&LevelDataMapMutex);					
@@ -1053,7 +1053,7 @@ void FSpudSaveData::ReadFromArchive(FSpudChunkedDataArchive& Ar, bool bLoadAllLe
 									SpudCopyArchiveData(Ar, *OutLevelArchive.Get(), TotalSize);
 									OutLevelArchive->Close();
 									
-                                    TLevelDataPtr LvlData(new FSpudLevelData());
+                                    TLevelDataPtr LvlData = MakeShareable(new FSpudLevelData());
 									LvlData->Name = LevelName;
 									LvlData->Status = LDS_Unloaded;
 									{
@@ -1110,7 +1110,7 @@ void FSpudSaveData::Reset()
 
 FSpudSaveData::TLevelDataPtr FSpudSaveData::CreateLevelData(const FString& LevelName)
 {
-	TLevelDataPtr NewLevelData(new FSpudLevelData());
+	TLevelDataPtr NewLevelData = MakeShareable(new FSpudLevelData());
 	NewLevelData->Name = LevelName;
 	NewLevelData->Status = LDS_Loaded; // assume loaded if we're creating
 
