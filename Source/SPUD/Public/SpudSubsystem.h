@@ -190,8 +190,21 @@ protected:
 	UFUNCTION()
 	void OnActorDestroyed(AActor* Actor);
 	void SubscribeAllLevelObjectEvents();
+
+public:
+	/**
+	 * Advanced: Subscribe a levels objects events in the case where you are handling level loading via instanced streaming levels
+	 */
+	UFUNCTION(BlueprintCallable)
 	void SubscribeLevelObjectEvents(ULevel* Level);
+
+	/**
+	 * Advanced: Unsubscribe a levels objects events in the case where you are handling level loading via instanced streaming levels
+	 */
+	UFUNCTION(BlueprintCallable)
 	void UnsubscribeLevelObjectEvents(ULevel* Level);
+protected:
+	
 	void UnsubscribeAllLevelObjectEvents();
 	
 	// This is a latent callback and has to be BlueprintCallable. Setting BlueprintInternalUseOnly to true so they do not show up in the editor.
