@@ -766,6 +766,13 @@ bool SpudPropertyUtil::TryWriteUObjectPropertyData(FProperty* Property, uint32 P
 		else
 		{
 			// non-actor UObject
+			// Ensure this isn't an actor object stored as a uobject pointer
+			const auto Actor = Cast<AActor>(Obj);
+			if(Actor)
+			{
+				UE_LOG(LogSpudProps, Warning, TEXT("Storing an AActor reference in a UObject property is unsupported! Info: %s = %s"), *GetLogPrefix(OProp, Depth), *Actor->GetName());
+				return false;
+			}
 			const FString Val = WriteNestedUObjectPropertyData(OProp, Obj, PrefixID, Data, bIsArrayElement, ClassDef,
 														PropertyOffsets, Meta, Out);
 			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(OProp, Depth), *Val);

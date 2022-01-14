@@ -827,12 +827,12 @@ void USpudState::RestoreObjectProperties(UObject* Obj, const FSpudPropertyData& 
 	const TMap<FGuid, UObject*>* RuntimeObjects, int StartDepth)
 {
 	FMemoryReader In(FromData.Data);
-	RestoreObjectProperties(Obj, In, Meta, RuntimeObjects, StartDepth);
-
+	const TArray<uint32>& PropertyOffsets = FromData.PropertyOffsets;
+	RestoreObjectProperties(Obj, In, PropertyOffsets, Meta, RuntimeObjects, StartDepth);
 }
 
 
-void USpudState::RestoreObjectProperties(UObject* Obj, FMemoryReader& In, const FSpudClassMetadata& Meta,
+void USpudState::RestoreObjectProperties(UObject* Obj, FMemoryReader& In, const TArray<uint32>& PropertyOffsets, const FSpudClassMetadata& Meta,
 	const TMap<FGuid, UObject*>* RuntimeObjects, int StartDepth)
 {
 	const auto ClassName = SpudPropertyUtil::GetClassName(Obj);
@@ -859,12 +859,13 @@ void USpudState::RestoreObjectProperties(UObject* Obj, FMemoryReader& In, const 
 	
 	
 	if (bUseFastPath)
-		RestoreObjectPropertiesFast(Obj, In, Meta, ClassDef, RuntimeObjects, StartDepth);
+		RestoreObjectPropertiesFast(Obj, In, PropertyOffsets, Meta, ClassDef, RuntimeObjects, StartDepth);
 	else
-		RestoreObjectPropertiesSlow(Obj, In, Meta, ClassDef, RuntimeObjects, StartDepth);
+		RestoreObjectPropertiesSlow(Obj, In, PropertyOffsets, Meta, ClassDef, RuntimeObjects, StartDepth);
 }
 
 void USpudState::RestoreObjectPropertiesFast(UObject* Obj, FMemoryReader& In,
+											 const TArray<uint32>& PropertyOffsets,
                                              const FSpudClassMetadata& Meta,
                                              const FSpudClassDef* ClassDef,
                                              const TMap<FGuid, UObject*>* RuntimeObjects,
@@ -873,12 +874,13 @@ void USpudState::RestoreObjectPropertiesFast(UObject* Obj, FMemoryReader& In,
 	UE_LOG(LogSpudState, Verbose, TEXT("%s FAST path, %d properties"), *SpudPropertyUtil::GetLogPrefix(StartDepth), ClassDef->Properties.Num());
 	const auto StoredPropertyIterator = ClassDef->Properties.CreateConstIterator();
 
-	RestoreFastPropertyVisitor Visitor(this, StoredPropertyIterator, In, *ClassDef, Meta, RuntimeObjects);
+	RestoreFastPropertyVisitor Visitor(this, StoredPropertyIterator, In, PropertyOffsets, *ClassDef, Meta, RuntimeObjects);
 	SpudPropertyUtil::VisitPersistentProperties(Obj, Visitor, StartDepth);
 	
 }
 
 void USpudState::RestoreObjectPropertiesSlow(UObject* Obj, FMemoryReader& In,
+													   const TArray<uint32>& PropertyOffsets,
                                                        const FSpudClassMetadata& Meta,
                                                        const FSpudClassDef* ClassDef,
                                                        const TMap<FGuid, UObject*>* RuntimeObjects,
@@ -886,7 +888,7 @@ void USpudState::RestoreObjectPropertiesSlow(UObject* Obj, FMemoryReader& In,
 {
 	UE_LOG(LogSpudState, Verbose, TEXT("%s SLOW path, %d properties"), *SpudPropertyUtil::GetLogPrefix(StartDepth), ClassDef->Properties.Num());
 
-	RestoreSlowPropertyVisitor Visitor(this, In, *ClassDef, Meta, RuntimeObjects);
+	RestoreSlowPropertyVisitor Visitor(this, In, PropertyOffsets, *ClassDef, Meta, RuntimeObjects);
 	SpudPropertyUtil::VisitPersistentProperties(Obj, Visitor, StartDepth);
 }
 
@@ -918,7 +920,7 @@ void USpudState::RestorePropertyVisitor::RestoreNestedUObjectIfNeeded(UObject* R
 					ISpudObjectCallback::Execute_SpudPreRestore(Obj, ParentState);
 				}
 				//const uint32 NewPrefixID = GetNestedPrefix(Property, CurrentPrefixID);
-				ParentState->RestoreObjectProperties(Obj, DataIn, Meta, RuntimeObjects, Depth+1);
+				ParentState->RestoreObjectProperties(Obj, DataIn, PropertyOffsets, Meta, RuntimeObjects, Depth+1);
 
 				if (IsCallback)
 				{
@@ -993,6 +995,14 @@ bool USpudState::RestoreSlowPropertyVisitor::VisitProperty(UObject* RootObject, 
 		return true;		
 	}
 	auto& StoredProperty = ClassDef.Properties[*PropertyIndexPtr];
+
+	// Seek to the property data
+	if (*PropertyIndexPtr < 0 || *PropertyIndexPtr >= PropertyOffsets.Num())
+	{
+		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, invalid property index for %s on class %s"), *Property->GetName(), *ClassDef.ClassName);
+		return true;		
+	}
+	DataIn.Seek(PropertyOffsets[*PropertyIndexPtr]);
 
 	SpudPropertyUtil::RestoreProperty(RootObject, Property, ContainerPtr, StoredProperty, ParentState->GetWorldReferenceLookups(), Meta, Depth, DataIn);
 
