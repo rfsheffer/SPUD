@@ -217,29 +217,28 @@ uint32 SpudPropertyUtil::GetNestedPrefixID(uint32 PrefixIDSoFar, FProperty* Prop
 }
 
 void SpudPropertyUtil::RegisterProperty(uint32 PropNameID, uint32 PrefixID, uint16 DataType, FSpudClassDef& ClassDef,
-                                            TArray<uint32>& PropertyOffsets, FArchive& Out)
+                                            TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FArchive& Out)
 {
 	const int Index = ClassDef.FindOrAddPropertyIndex(PropNameID, PrefixID, DataType);
-	if (PropertyOffsets.Num() < Index + 1)
-		PropertyOffsets.SetNum(Index + 1);
-	PropertyOffsets[Index] = Out.Tell();
+	TMap<int, uint32>& PropertyOffsets = PrefixToPropertyOffsets.FindOrAdd(PrefixID);
+	PropertyOffsets.Add(Index, Out.Tell());
 }
 
 void SpudPropertyUtil::RegisterProperty(const FString& Name, uint32 PrefixID, uint16 DataType, FSpudClassDef& ClassDef,
-    TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out)
+    TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out)
 {
-	return RegisterProperty(Meta.FindOrAddPropertyIDFromName(Name), PrefixID, DataType, ClassDef, PropertyOffsets, Out);
+	return RegisterProperty(Meta.FindOrAddPropertyIDFromName(Name), PrefixID, DataType, ClassDef, PrefixToPropertyOffsets, Out);
 }
 
 void SpudPropertyUtil::RegisterProperty(FProperty* Prop, uint32 PrefixID, FSpudClassDef& ClassDef,
-    TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out)
+    TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out)
 {
-	return RegisterProperty(Meta.FindOrAddPropertyIDFromProperty(Prop), PrefixID, GetPropertyDataType(Prop), ClassDef, PropertyOffsets, Out);
+	return RegisterProperty(Meta.FindOrAddPropertyIDFromProperty(Prop), PrefixID, GetPropertyDataType(Prop), ClassDef, PrefixToPropertyOffsets, Out);
 }
 
-void SpudPropertyUtil::VisitPersistentProperties(UObject* RootObject, PropertyVisitor& Visitor, int StartDepth)
+void SpudPropertyUtil::VisitPersistentProperties(UObject* RootObject, PropertyVisitor& Visitor, uint32 PrefixID, int StartDepth)
 {
-	VisitPersistentProperties(RootObject, RootObject->GetClass(), SPUDDATA_PREFIXID_NONE, RootObject,
+	VisitPersistentProperties(RootObject, RootObject->GetClass(), PrefixID, RootObject,
 	                          false, StartDepth, Visitor);
 }
 
@@ -301,12 +300,12 @@ bool SpudPropertyUtil::VisitPersistentProperties(UObject* RootObject, const UStr
 
 uint16 SpudPropertyUtil::WriteEnumPropertyData(FEnumProperty* EProp, uint32 PrefixID, const void* Data,
                                                      bool bIsArrayElement, FSpudClassDef& ClassDef,
-                                                     TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
+                                                     TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta,
                                                      FArchive& Out)
 {
 	// Enums as 16-bit numbers, that should be large enough!
 	if (!bIsArrayElement)
-		RegisterProperty(EProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+		RegisterProperty(EProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 
 	uint16 Val = EProp->GetUnderlyingProperty()->GetUnsignedIntPropertyValue(Data);
 	Out << Val;
@@ -315,13 +314,13 @@ uint16 SpudPropertyUtil::WriteEnumPropertyData(FEnumProperty* EProp, uint32 Pref
 
 bool SpudPropertyUtil::TryWriteEnumPropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
                                                       bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef,
-                                                      TArray<uint32>& PropertyOffsets,
+                                                      TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                                                       FSpudClassMetadata& Meta, FArchive& Out)
 {
 	if (const auto EProp = CastField<FEnumProperty>(Property))
 	{
 		// Enums as 16-bit numbers, that should be large enough!
-		const uint16 Val = WriteEnumPropertyData(EProp, PrefixID, Data, bIsArrayElement, ClassDef, PropertyOffsets,
+		const uint16 Val = WriteEnumPropertyData(EProp, PrefixID, Data, bIsArrayElement, ClassDef, PrefixToPropertyOffsets,
 		                                         Meta, Out);
 		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Property, Depth), *ToString(Val));
 		return true;
@@ -357,7 +356,7 @@ bool SpudPropertyUtil::TryReadEnumPropertyData(FProperty* Prop, void* Data,
 
 bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
 													bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef,
-													TArray<uint32>& PropertyOffsets,
+													TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 													const AActor* referencingActor,
 													const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
 													FArchive& Out)
@@ -366,7 +365,7 @@ bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint3
 	{
 		// Class reference properties are stored as a class ClassID
 		if (!bIsArrayElement)
-			RegisterProperty(SoftClassProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+			RegisterProperty(SoftClassProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 
 		uint32 ClassID;
 		FString Ret = TEXT("NULL");
@@ -392,7 +391,7 @@ bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint3
 	if (const auto SoftObjProp = ExactCastField<FSoftObjectProperty>(Property))
 	{
 		if (!bIsArrayElement)
-			RegisterProperty(SoftObjProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+			RegisterProperty(SoftObjProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 
 		// Flags: 0 - Not Saved, 1 - NULL the soft reference, 2 - Asset reference, 3 - Actor reference
 		// Only flags 2 and 3 have a string serialized
@@ -463,7 +462,7 @@ bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint3
 	if (const auto WeakObjProp = ExactCastField<FWeakObjectProperty>(Property))
 	{
 		if (!bIsArrayElement)
-			RegisterProperty(WeakObjProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+			RegisterProperty(WeakObjProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 
 		// Flags: 0 - Not Saved, 1 - NULL the weak reference, 2 - Asset reference, 3 - Actor reference
 		// Only flags 2 and 3 have a string serialized
@@ -657,12 +656,12 @@ bool SpudPropertyUtil::TryReadSoftObjectPropertyData(FProperty* Prop, void* Data
 }
 
 FString SpudPropertyUtil::WriteActorRefPropertyData(FObjectProperty* OProp, AActor* Actor, uint32 PrefixID, const void* Data,
-	bool bIsArrayElement, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+	bool bIsArrayElement, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	const AActor* referencingActor,
 	const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta, FArchive& Out)
 {
 	if (!bIsArrayElement)
-		RegisterProperty(OProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+		RegisterProperty(OProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 
 	FString LevelString;
 	FString RefString;
@@ -678,11 +677,11 @@ FString SpudPropertyUtil::WriteActorRefPropertyData(FObjectProperty* OProp, AAct
 }
 
 FString SpudPropertyUtil::WriteNestedUObjectPropertyData(FObjectProperty* OProp, UObject* UObj, uint32 PrefixID, const void* Data,
-	bool bIsArrayElement, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
+	bool bIsArrayElement, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta,
 	FArchive& Out)
 {
 	if (!bIsArrayElement)
-		RegisterProperty(OProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+		RegisterProperty(OProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 
 	uint32 ClassID;
 	FString Ret = "NULL";
@@ -716,11 +715,11 @@ FString SpudPropertyUtil::WriteNestedUObjectPropertyData(FObjectProperty* OProp,
 }
 
 FString SpudPropertyUtil::WriteSubclassOfPropertyData(FClassProperty* CProp, UClass* Class, uint32 PrefixID, const void* Data,
-	bool bIsArrayElement, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
+	bool bIsArrayElement, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta,
 	FArchive& Out)
 {
 	if (!bIsArrayElement)
-		RegisterProperty(CProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+		RegisterProperty(CProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 
 	uint32 ClassID;
 	FString Ret = "NULL";
@@ -739,7 +738,7 @@ FString SpudPropertyUtil::WriteSubclassOfPropertyData(FClassProperty* CProp, UCl
 }
 
 bool SpudPropertyUtil::TryWriteUObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
-                                                   bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+                                                   bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                                                    const AActor* referencingActor,
                                                    const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
                                                    FArchive& Out)
@@ -753,14 +752,14 @@ bool SpudPropertyUtil::TryWriteUObjectPropertyData(FProperty* Property, uint32 P
 		{
 			const auto Actor = Cast<AActor>(Obj);			
 			const FString Val = WriteActorRefPropertyData(OProp, Actor, PrefixID, Data, bIsArrayElement, ClassDef,
-														PropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out);
+														PrefixToPropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out);
 			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(OProp, Depth), *ToString(Val));
 		}
 		else if (auto CProp = CastField<FClassProperty>(OProp))
 		{
 			const auto RuntimeClass = Cast<UClass>(Obj);
 			const FString Val = WriteSubclassOfPropertyData(CProp, RuntimeClass, PrefixID, Data, bIsArrayElement, ClassDef,
-														PropertyOffsets, Meta, Out);
+														PrefixToPropertyOffsets, Meta, Out);
 			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(OProp, Depth), *Val);
 		}
 		else
@@ -774,7 +773,7 @@ bool SpudPropertyUtil::TryWriteUObjectPropertyData(FProperty* Property, uint32 P
 				return false;
 			}
 			const FString Val = WriteNestedUObjectPropertyData(OProp, Obj, PrefixID, Data, bIsArrayElement, ClassDef,
-														PropertyOffsets, Meta, Out);
+														PrefixToPropertyOffsets, Meta, Out);
 			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(OProp, Depth), *Val);
 		}
 		return true;
@@ -783,13 +782,13 @@ bool SpudPropertyUtil::TryWriteUObjectPropertyData(FProperty* Property, uint32 P
 }
 
 bool SpudPropertyUtil::TryWriteMulticastDelegatePropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
-	bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+	bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	const AActor* referencingActor, const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta, FArchive& Out)
 {
 	if (const auto MDProp = CastField<FMulticastDelegateProperty>(Property))
 	{
 		if (!bIsArrayElement)
-			RegisterProperty(MDProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+			RegisterProperty(MDProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 
 		FString ScriptDelegateDesc;
 		const FMulticastScriptDelegate* scriptDelegate = MDProp->GetMulticastDelegate(Data);
@@ -1060,25 +1059,25 @@ bool SpudPropertyUtil::TryReadUObjectPropertyData(FProperty* Prop, void* Data, c
 void SpudPropertyUtil::StoreProperty(const UObject* RootObject, FProperty* Property, uint32 PrefixID,
                                                 const void* ContainerPtr,
                                                 int Depth, FSpudClassDef& ClassDef,
-                                                TArray<uint32>& PropertyOffsets,
+                                                TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                                                 const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
                                                 FMemoryWriter& Out)
 {
 	// Arrays supported, but not maps / sets yet
 	if (const auto AProp = CastField<FArrayProperty>(Property))
 	{
-		StoreArrayProperty(AProp, RootObject, PrefixID, ContainerPtr, Depth, ClassDef, PropertyOffsets, WorldReferenceLookups, Meta, Out);
+		StoreArrayProperty(AProp, RootObject, PrefixID, ContainerPtr, Depth, ClassDef, PrefixToPropertyOffsets, WorldReferenceLookups, Meta, Out);
 	}
 	else
 	{
-		StoreContainerProperty(Property, RootObject, PrefixID, ContainerPtr, false, Depth, ClassDef, PropertyOffsets, WorldReferenceLookups, Meta, Out);
+		StoreContainerProperty(Property, RootObject, PrefixID, ContainerPtr, false, Depth, ClassDef, PrefixToPropertyOffsets, WorldReferenceLookups, Meta, Out);
 	}
 }
 
 void SpudPropertyUtil::StoreArrayProperty(FArrayProperty* AProp, const UObject* RootObject, uint32 PrefixID,
                                                    const void* ContainerPtr,
                                                    int Depth, FSpudClassDef& ClassDef,
-                                                   TArray<uint32>& PropertyOffsets,
+                                                   TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                                                    const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
                                                    FMemoryWriter& Out)
 {
@@ -1094,7 +1093,7 @@ void SpudPropertyUtil::StoreArrayProperty(FArrayProperty* AProp, const UObject* 
 			*RootObject->GetName(), *AProp->GetName(), NumElements, std::numeric_limits<uint16>::max());
 	}
 
-	RegisterProperty(AProp, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+	RegisterProperty(AProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 	
 	// Data is count first, then elements
 	uint16 ShortElems = static_cast<uint16>(NumElements);
@@ -1102,14 +1101,14 @@ void SpudPropertyUtil::StoreArrayProperty(FArrayProperty* AProp, const UObject* 
 	for (int ArrayElem = 0; ArrayElem < NumElements; ++ArrayElem)
 	{
 		void *ElemPtr = ArrayHelper.GetRawPtr(ArrayElem);
-		StoreContainerProperty(AProp->Inner, RootObject, PrefixID, ElemPtr, true, Depth, ClassDef, PropertyOffsets, WorldReferenceLookups, Meta, Out);
+		StoreContainerProperty(AProp->Inner, RootObject, PrefixID, ElemPtr, true, Depth, ClassDef, PrefixToPropertyOffsets, WorldReferenceLookups, Meta, Out);
 	}
 	
 }
 
 void SpudPropertyUtil::StoreContainerProperty(FProperty* Property, const UObject* RootObject, uint32 PrefixID,
                                                        const void* ContainerPtr, bool bIsArrayElement, int Depth,
-                                                       FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+                                                       FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                                                        const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
                                                        FMemoryWriter& Out)
 {
@@ -1122,10 +1121,10 @@ void SpudPropertyUtil::StoreContainerProperty(FProperty* Property, const UObject
 		{
 			// Builtin structs
 			bUpdateOK =
-                TryWriteBuiltinStructPropertyData<FVector>(SProp, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-                TryWriteBuiltinStructPropertyData<FRotator>(SProp, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-                TryWriteBuiltinStructPropertyData<FTransform>(SProp, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-                TryWriteBuiltinStructPropertyData<FGuid>(SProp, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out);
+                TryWriteBuiltinStructPropertyData<FVector>(SProp, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+                TryWriteBuiltinStructPropertyData<FRotator>(SProp, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+                TryWriteBuiltinStructPropertyData<FTransform>(SProp, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+                TryWriteBuiltinStructPropertyData<FGuid>(SProp, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 		}
 		else
 		{
@@ -1139,29 +1138,29 @@ void SpudPropertyUtil::StoreContainerProperty(FProperty* Property, const UObject
 	else 
 	{
 		bUpdateOK =
-            TryWritePropertyData<FBoolProperty,		bool>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FByteProperty,		uint8>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FUInt16Property,	uint16>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FUInt32Property,	uint32>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FUInt64Property,	uint64>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FInt8Property,		int8>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FInt16Property,	int16>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FIntProperty,		int>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FInt64Property,	int64>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FFloatProperty,	float>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FDoubleProperty,	double>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FStrProperty,		FString>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FNameProperty,		FName>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWritePropertyData<FTextProperty,		FText>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out) ||
-            TryWriteEnumPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, Meta, Out);
+            TryWritePropertyData<FBoolProperty,		bool>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FByteProperty,		uint8>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FUInt16Property,	uint16>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FUInt32Property,	uint32>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FUInt64Property,	uint64>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FInt8Property,		int8>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FInt16Property,	int16>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FIntProperty,		int>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FInt64Property,	int64>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FFloatProperty,	float>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FDoubleProperty,	double>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FStrProperty,		FString>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FNameProperty,		FName>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWritePropertyData<FTextProperty,		FText>(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out) ||
+            TryWriteEnumPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 
 		if(!bUpdateOK)
 		{
 			// Pass in the referencing actor so we can setup possible cross level referencing, or complain when we cannot.
 			const AActor* referencingActor = Cast<AActor>(RootObject);
-			bUpdateOK = TryWriteUObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out) ||
-				        TryWriteSoftObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out) ||
-				        TryWriteMulticastDelegatePropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out);
+			bUpdateOK = TryWriteUObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out) ||
+				        TryWriteSoftObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out) ||
+				        TryWriteMulticastDelegatePropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out);
 		}
 	}
 	if (!bUpdateOK)

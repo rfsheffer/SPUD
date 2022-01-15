@@ -96,11 +96,11 @@ void USpudState::StoreLevel(ULevel* Level, bool bRelease, bool bBlocking)
 
 USpudState::StorePropertyVisitor::StorePropertyVisitor(
 	USpudState* Parent,
-	FSpudClassDef& InClassDef, TArray<uint32>& InPropertyOffsets,
+	FSpudClassDef& InClassDef, TPrefixedPropertyOffsets& InPrefixToPropertyOffsets,
 	FSpudClassMetadata& InMeta, FMemoryWriter& InOut):
 	ParentState(Parent),
 	ClassDef(InClassDef),
-	PropertyOffsets(InPropertyOffsets),
+	PrefixToPropertyOffsets(InPrefixToPropertyOffsets),
 	Meta(InMeta),
 	Out(InOut)
 {
@@ -110,7 +110,7 @@ bool USpudState::StorePropertyVisitor::VisitProperty(UObject* RootObject, FPrope
                                                                     uint32 CurrentPrefixID, void* ContainerPtr,
                                                                     int Depth)
 {
-	SpudPropertyUtil::StoreProperty(RootObject, Property, CurrentPrefixID, ContainerPtr, Depth, ClassDef, PropertyOffsets, ParentState->GetWorldReferenceLookups(), Meta, Out);
+	SpudPropertyUtil::StoreProperty(RootObject, Property, CurrentPrefixID, ContainerPtr, Depth, ClassDef, PrefixToPropertyOffsets, ParentState->GetWorldReferenceLookups(), Meta, Out);
 
 	StoreNestedUObjectIfNeeded(RootObject, Property, CurrentPrefixID, ContainerPtr, Depth);
 	
@@ -145,7 +145,7 @@ void USpudState::StorePropertyVisitor::StoreNestedUObjectIfNeeded(UObject* RootO
 					ISpudObjectCallback::Execute_SpudPreStore(Obj, ParentState);
 				}
 				const uint32 NewPrefixID = GetNestedPrefix(Property, CurrentPrefixID);
-				ParentState->StoreObjectProperties(Obj, NewPrefixID, PropertyOffsets, Meta, Out, Depth+1);
+				ParentState->StoreObjectProperties(Obj, NewPrefixID, PrefixToPropertyOffsets, Meta, Out, Depth+1);
 
 				if (IsCallback)
 				{
@@ -431,25 +431,25 @@ void USpudState::StoreGlobalObject(UObject* Obj, FSpudNamedObjectData* Data)
 
 void USpudState::StoreObjectProperties(UObject* Obj, FSpudPropertyData& Properties, FSpudClassMetadata& Meta, int StartDepth)
 {
-	auto& PropOffsets = Properties.PropertyOffsets;
+	auto& PrefixToPropertyOffsets = Properties.PrefixToPropertyOffsets;
 		
 	auto& PropData = Properties.Data;
 	PropData.Empty();
 	FMemoryWriter PropertyWriter(PropData);
 
-	StoreObjectProperties(Obj, SPUDDATA_PREFIXID_NONE, PropOffsets, Meta, PropertyWriter, StartDepth);	
+	StoreObjectProperties(Obj, SPUDDATA_PREFIXID_NONE, PrefixToPropertyOffsets, Meta, PropertyWriter, StartDepth);	
 }
 
 
-void USpudState::StoreObjectProperties(UObject* Obj, uint32 PrefixID, TArray<uint32>& PropOffsets,
+void USpudState::StoreObjectProperties(UObject* Obj, uint32 PrefixID, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	FSpudClassMetadata& Meta, FMemoryWriter& Out, int StartDepth)
 {
 	const FString& ClassName = SpudPropertyUtil::GetClassName(Obj);
 	auto& ClassDef = Meta.FindOrAddClassDef(ClassName);
 
 	// visit all properties and write out
-	StorePropertyVisitor Visitor(this, ClassDef, PropOffsets, Meta, Out);
-	SpudPropertyUtil::VisitPersistentProperties(Obj, Visitor, StartDepth);
+	StorePropertyVisitor Visitor(this, ClassDef, PrefixToPropertyOffsets, Meta, Out);
+	SpudPropertyUtil::VisitPersistentProperties(Obj, Visitor, PrefixID, StartDepth);
 }
 
 void USpudState::RestoreLevel(UWorld* World, const FString& LevelName)
@@ -827,12 +827,12 @@ void USpudState::RestoreObjectProperties(UObject* Obj, const FSpudPropertyData& 
 	const TMap<FGuid, UObject*>* RuntimeObjects, int StartDepth)
 {
 	FMemoryReader In(FromData.Data);
-	const TArray<uint32>& PropertyOffsets = FromData.PropertyOffsets;
-	RestoreObjectProperties(Obj, In, PropertyOffsets, Meta, RuntimeObjects, StartDepth);
+	const TPrefixedPropertyOffsets& PrefixToPropertyOffsets = FromData.PrefixToPropertyOffsets;
+	RestoreObjectProperties(Obj, In, SPUDDATA_PREFIXID_NONE, PrefixToPropertyOffsets, Meta, RuntimeObjects, StartDepth);
 }
 
 
-void USpudState::RestoreObjectProperties(UObject* Obj, FMemoryReader& In, const TArray<uint32>& PropertyOffsets, const FSpudClassMetadata& Meta,
+void USpudState::RestoreObjectProperties(UObject* Obj, FMemoryReader& In, uint32 PrefixID, const TPrefixedPropertyOffsets& PrefixToPropertyOffsets, const FSpudClassMetadata& Meta,
 	const TMap<FGuid, UObject*>* RuntimeObjects, int StartDepth)
 {
 	const auto ClassName = SpudPropertyUtil::GetClassName(Obj);
@@ -859,13 +859,14 @@ void USpudState::RestoreObjectProperties(UObject* Obj, FMemoryReader& In, const 
 	
 	
 	if (bUseFastPath)
-		RestoreObjectPropertiesFast(Obj, In, PropertyOffsets, Meta, ClassDef, RuntimeObjects, StartDepth);
+		RestoreObjectPropertiesFast(Obj, In, PrefixID, PrefixToPropertyOffsets, Meta, ClassDef, RuntimeObjects, StartDepth);
 	else
-		RestoreObjectPropertiesSlow(Obj, In, PropertyOffsets, Meta, ClassDef, RuntimeObjects, StartDepth);
+		RestoreObjectPropertiesSlow(Obj, In, PrefixID, PrefixToPropertyOffsets, Meta, ClassDef, RuntimeObjects, StartDepth);
 }
 
 void USpudState::RestoreObjectPropertiesFast(UObject* Obj, FMemoryReader& In,
-											 const TArray<uint32>& PropertyOffsets,
+											 uint32 PrefixID, 
+											 const TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                                              const FSpudClassMetadata& Meta,
                                              const FSpudClassDef* ClassDef,
                                              const TMap<FGuid, UObject*>* RuntimeObjects,
@@ -874,13 +875,14 @@ void USpudState::RestoreObjectPropertiesFast(UObject* Obj, FMemoryReader& In,
 	UE_LOG(LogSpudState, Verbose, TEXT("%s FAST path, %d properties"), *SpudPropertyUtil::GetLogPrefix(StartDepth), ClassDef->Properties.Num());
 	const auto StoredPropertyIterator = ClassDef->Properties.CreateConstIterator();
 
-	RestoreFastPropertyVisitor Visitor(this, StoredPropertyIterator, In, PropertyOffsets, *ClassDef, Meta, RuntimeObjects);
-	SpudPropertyUtil::VisitPersistentProperties(Obj, Visitor, StartDepth);
+	RestoreFastPropertyVisitor Visitor(this, StoredPropertyIterator, In, PrefixToPropertyOffsets, *ClassDef, Meta, RuntimeObjects);
+	SpudPropertyUtil::VisitPersistentProperties(Obj, Visitor, PrefixID, StartDepth);
 	
 }
 
 void USpudState::RestoreObjectPropertiesSlow(UObject* Obj, FMemoryReader& In,
-													   const TArray<uint32>& PropertyOffsets,
+													   uint32 PrefixID,
+													   const TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                                                        const FSpudClassMetadata& Meta,
                                                        const FSpudClassDef* ClassDef,
                                                        const TMap<FGuid, UObject*>* RuntimeObjects,
@@ -888,8 +890,8 @@ void USpudState::RestoreObjectPropertiesSlow(UObject* Obj, FMemoryReader& In,
 {
 	UE_LOG(LogSpudState, Verbose, TEXT("%s SLOW path, %d properties"), *SpudPropertyUtil::GetLogPrefix(StartDepth), ClassDef->Properties.Num());
 
-	RestoreSlowPropertyVisitor Visitor(this, In, PropertyOffsets, *ClassDef, Meta, RuntimeObjects);
-	SpudPropertyUtil::VisitPersistentProperties(Obj, Visitor, StartDepth);
+	RestoreSlowPropertyVisitor Visitor(this, In, PrefixToPropertyOffsets, *ClassDef, Meta, RuntimeObjects);
+	SpudPropertyUtil::VisitPersistentProperties(Obj, Visitor, PrefixID, StartDepth);
 }
 
 
@@ -919,8 +921,8 @@ void USpudState::RestorePropertyVisitor::RestoreNestedUObjectIfNeeded(UObject* R
 				{
 					ISpudObjectCallback::Execute_SpudPreRestore(Obj, ParentState);
 				}
-				//const uint32 NewPrefixID = GetNestedPrefix(Property, CurrentPrefixID);
-				ParentState->RestoreObjectProperties(Obj, DataIn, PropertyOffsets, Meta, RuntimeObjects, Depth+1);
+				const uint32 NewPrefixID = GetNestedPrefix(Property, CurrentPrefixID);
+				ParentState->RestoreObjectProperties(Obj, DataIn, NewPrefixID, PrefixToPropertyOffsets, Meta, RuntimeObjects, Depth+1);
 
 				if (IsCallback)
 				{
@@ -997,12 +999,20 @@ bool USpudState::RestoreSlowPropertyVisitor::VisitProperty(UObject* RootObject, 
 	auto& StoredProperty = ClassDef.Properties[*PropertyIndexPtr];
 
 	// Seek to the property data
-	if (*PropertyIndexPtr < 0 || *PropertyIndexPtr >= PropertyOffsets.Num())
+	const TMap<int, uint32>* PropertyOffsets = PrefixToPropertyOffsets.Find(CurrentPrefixID);
+	if(!PropertyOffsets)
 	{
-		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, invalid property index for %s on class %s"), *Property->GetName(), *ClassDef.ClassName);
+		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, no property offsets for %s on class %s"), *Property->GetName(), *ClassDef.ClassName);
+		return true;
+	}
+
+	const uint32* dataOffset = PropertyOffsets->Find(*PropertyIndexPtr);
+	if (!dataOffset)
+	{
+		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, no property offset for %s on class %s"), *Property->GetName(), *ClassDef.ClassName);
 		return true;		
 	}
-	DataIn.Seek(PropertyOffsets[*PropertyIndexPtr]);
+	DataIn.Seek(*dataOffset);
 
 	SpudPropertyUtil::RestoreProperty(RootObject, Property, ContainerPtr, StoredProperty, ParentState->GetWorldReferenceLookups(), Meta, Depth, DataIn);
 

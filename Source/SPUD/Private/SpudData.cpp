@@ -10,7 +10,7 @@
 DEFINE_LOG_CATEGORY(LogSpudData)
 
 // System version covers our internal format changes
-#define SPUD_CURRENT_SYSTEM_VERSION 2
+#define SPUD_CURRENT_SYSTEM_VERSION 3
 
 // int32 so that Blueprint-compatible. 2 billion should be enough anyway and you can always use the negatives
 int32 GCurrentUserDataModelVersion = 0;
@@ -280,7 +280,14 @@ void FSpudPropertyData::WriteToArchive(FSpudChunkedDataArchive& Ar)
 {
 	if (ChunkStart(Ar))
 	{
-		Ar << PropertyOffsets;
+		int32 numMapEntries = PrefixToPropertyOffsets.Num();
+		Ar << numMapEntries;
+		for(TPair<uint32, TMap<int, uint32>>& mapPair : PrefixToPropertyOffsets)
+		{
+			Ar << mapPair.Key;
+			Ar << mapPair.Value;
+		}
+		
 		Ar << Data;
 		ChunkEnd(Ar);
 	}
@@ -296,10 +303,26 @@ void FSpudPropertyData::ReadFromArchive(FSpudChunkedDataArchive& Ar, uint32 Stor
 	}
 
 	// Latest system version
-	PropertyOffsets.Empty();
+	PrefixToPropertyOffsets.Empty();
 	if (ChunkStart(Ar))
 	{
-		Ar << PropertyOffsets;
+		if (StoredSystemVersion == 2)
+		{
+			TArray<uint32> PropertyOffsets;
+			Ar << PropertyOffsets;
+		}
+		else
+		{
+			int32 numMapEntries;
+			Ar << numMapEntries;
+			for(int32 mapIndex = 0; mapIndex < numMapEntries; ++mapIndex)
+			{
+				uint32 propertyOffsetsPrefix;
+				Ar << propertyOffsetsPrefix;
+				TMap<int, uint32>& propertyOffsets = PrefixToPropertyOffsets.Add(propertyOffsetsPrefix);
+				Ar << propertyOffsets;
+			}
+		}
 		Ar << Data;
 		ChunkEnd(Ar);
 	}
@@ -311,7 +334,7 @@ void FSpudPropertyData::ReadFromArchiveV1(FSpudChunkedDataArchive& Ar)
 	// It all worked because read & write were the same, but it breaks the rules of chunk wrapping
 	// We need to read this back the old way for compatibility
 
-	PropertyOffsets.Empty();
+	TArray<uint32> PropertyOffsets;
 	Ar << PropertyOffsets;
 	// This bit used to be a call to inherited Read, hence wrapping incorrectly
 	if (ChunkStart(Ar))
@@ -323,7 +346,7 @@ void FSpudPropertyData::ReadFromArchiveV1(FSpudChunkedDataArchive& Ar)
 
 void FSpudPropertyData::Reset()
 {
-	PropertyOffsets.Empty();
+	PrefixToPropertyOffsets.Empty();
 	Data.Empty();
 }
 

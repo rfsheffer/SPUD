@@ -297,6 +297,10 @@ struct SPUD_API FSpudDataHolder : public FSpudChunk
 	virtual void Reset();
 
 };
+
+// A type defining a mapping of prefixID to a mapping of property index to offset
+typedef TMap<uint32, TMap<int, uint32>> TPrefixedPropertyOffsets;
+
 /// Holder for property data that we automatically populate
 struct SPUD_API FSpudPropertyData : public FSpudChunk
 {
@@ -304,7 +308,7 @@ struct SPUD_API FSpudPropertyData : public FSpudChunk
 	/// Properties are ordered as per the relevant FSpudClassDef
 	/// We need offsets per-instance not per-class because data offsets can be different per instance
 	// (string lengths, array lengths can vary)
-	TArray<uint32> PropertyOffsets;
+	TPrefixedPropertyOffsets PrefixToPropertyOffsets;
 	TArray<uint8> Data;
 	
 	virtual const char* GetMagic() const override { return SPUDDATA_PROPERTYDATA_MAGIC; }

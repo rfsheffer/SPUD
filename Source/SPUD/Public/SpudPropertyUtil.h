@@ -197,14 +197,14 @@ public:
 	static FString GetNestedPrefix(uint32 PrefixIDSoFar, FProperty* Prop, const FSpudClassMetadata& Meta);
 	static uint32 GetNestedPrefixID(uint32 PrefixIDSoFar, FProperty* Prop, const FSpudClassMetadata& Meta);
 	static uint32 FindOrAddNestedPrefixID(uint32 PrefixIDSoFar, FProperty* Prop, FSpudClassMetadata& Meta);
-	static void RegisterProperty(uint32 PropNameID, uint32 PrefixID, uint16 DataType, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FArchive& Out);
+	static void RegisterProperty(uint32 PropNameID, uint32 PrefixID, uint16 DataType, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FArchive& Out);
 	static void RegisterProperty(const FString& Name, uint32 PrefixID, uint16 DataType, FSpudClassDef&
-                          ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
-	static void RegisterProperty(FProperty* Prop, uint32 PrefixID, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata
+                          ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
+	static void RegisterProperty(FProperty* Prop, uint32 PrefixID, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata
                           & Meta, FArchive& Out);
 
 	/// Visit all properties of a UObject
-	static void VisitPersistentProperties(UObject* RootObject, PropertyVisitor& Visitor, int StartDepth = 0);
+	static void VisitPersistentProperties(UObject* RootObject, PropertyVisitor& Visitor, uint32 PrefixID, int StartDepth = 0);
 	/// Visit all properties of a class definition, with no instance
 	static void VisitPersistentProperties(const UStruct* Definition, PropertyVisitor& Visitor);
 
@@ -219,17 +219,17 @@ public:
 	
 	static void StoreProperty(const UObject* RootObject, FProperty* Property, uint32 PrefixID,
                              const void* ContainerPtr, int Depth,
-                             FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+                             FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                              const FWorldReferenceLookups& WorldReferenceLookups,
                              FSpudClassMetadata& Meta, FMemoryWriter& Out);
 	static void StoreArrayProperty(FArrayProperty* AProp, const UObject* RootObject, uint32 PrefixID,
                                  const void* ContainerPtr, int Depth, FSpudClassDef& ClassDef,
-                                 TArray<uint32>& PropertyOffsets,
+                                 TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                                  const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
                                  FMemoryWriter& Out);
 	static void StoreContainerProperty(FProperty* Property, const UObject* RootObject,
 	                                   uint32 PrefixID, const void* ContainerPtr, bool bIsArrayElement, int Depth,
-	                                   FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+	                                   FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	                                   const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
 	                                   FMemoryWriter& Out);
 	
@@ -279,10 +279,10 @@ protected:
 	template <class PropType, typename ValueType>
 	static typename SpudTypeInfo<ValueType>::StorageType WritePropertyData(
 		PropType* Prop, uint32 PrefixID, const void* Data, bool bIsArrayElement, FSpudClassDef& ClassDef,
-		TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out)
+		TPrefixedPropertyOffsets& InPrefixToPropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out)
 	{
     	if (!bIsArrayElement)
-    		RegisterProperty(Prop, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+    		RegisterProperty(Prop, PrefixID, ClassDef, InPrefixToPropertyOffsets, Meta, Out);
     	auto Val = static_cast<typename SpudTypeInfo<ValueType>::StorageType>(Prop->GetPropertyValue(Data)); // Cast in case we want to compress into smaller type
     	Out << Val;
     	return Val;
@@ -291,12 +291,12 @@ protected:
 
 	template <class PropType, typename ValueType>
 	static bool TryWritePropertyData(FProperty* Prop, uint32 PrefixID, const void* Data, bool bIsArrayElement, int Depth,
-	                          FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
+	                          FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta,
 	                          FArchive& Out)
     {
     	if (auto IProp = CastField<PropType>(Prop))
     	{
-    		auto Val = WritePropertyData<PropType, ValueType>(IProp, PrefixID, Data, bIsArrayElement, ClassDef, PropertyOffsets, Meta, Out);
+    		auto Val = WritePropertyData<PropType, ValueType>(IProp, PrefixID, Data, bIsArrayElement, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ToString(Val));
     		return true;
     	}
@@ -305,35 +305,35 @@ protected:
     }
 
 	static uint16 WriteEnumPropertyData(FEnumProperty* EProp, uint32 PrefixID, const void* Data, bool bIsArrayElement,
-	                                    FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+	                                    FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	                                    FSpudClassMetadata& Meta, FArchive& Out);
 
 	static bool TryWriteEnumPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
-	                                     int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+	                                     int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	                                     FSpudClassMetadata& Meta,
 	                                     FArchive& Out);
 	static bool TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
-										       int Depth, FSpudClassDef& ClassDef,TArray<uint32>& PropertyOffsets,
+										       int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 										       const AActor* referencingActor,
 										       const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
 										       FArchive& Out);
 	static FString WriteActorRefPropertyData(FObjectProperty* OProp, AActor* Actor, FPlatformTypes::uint32 PrefixID, const void* Data,
 	                                         bool bIsArrayElement, FSpudClassDef& ClassDef,
-	                                         TArray<uint32>& PropertyOffsets, const AActor* referencingActor,
+	                                         TPrefixedPropertyOffsets& PrefixToPropertyOffsets, const AActor* referencingActor,
 	                                         const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta, FArchive& Out);
 	static FString WriteNestedUObjectPropertyData(FObjectProperty* OProp, UObject* UObj, FPlatformTypes::uint32 PrefixID, const void* Data,
 											bool bIsArrayElement, FSpudClassDef& ClassDef,
-											TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
+											TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
 	static FString WriteSubclassOfPropertyData(FClassProperty* CProp, UClass* Class, uint32 PrefixID, const void* Data,
 											bool bIsArrayElement, FSpudClassDef& ClassDef,
-											TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
+											TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out);
 	static bool TryWriteUObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
-	                                       int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+	                                       int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	                                       const AActor* referencingActor,
 	                                       const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
 	                                       FArchive& Out);
 	static bool TryWriteMulticastDelegatePropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
-	                                       int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets,
+	                                       int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	                                       const AActor* referencingActor,
 	                                       const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
 	                                       FArchive& Out);
@@ -350,13 +350,13 @@ protected:
     }
 	template <typename ValueType>
 	static bool TryWriteBuiltinStructPropertyData(FStructProperty* Prop, uint32 PrefixID, const void* Data, bool bIsArrayElement,
-	                                       int Depth, FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out)
+	                                       int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta, FArchive& Out)
     {
     	// Check struct detail value matches
     	if (Prop->Struct == TBaseStructure<ValueType>::Get())
     	{
     		if (!bIsArrayElement)
-    			RegisterProperty(Prop, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+    			RegisterProperty(Prop, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
     		ValueType Val = WriteStructPropertyData<ValueType>(Prop, PrefixID, Data, Out);
     		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ToString(&Val));
     		return true;

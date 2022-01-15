@@ -108,11 +108,11 @@ protected:
 	protected:
 		USpudState* ParentState; // weak, but safe to use in scope
 		FSpudClassDef& ClassDef;
-		TArray<uint32>& PropertyOffsets;
+		TPrefixedPropertyOffsets& PrefixToPropertyOffsets;
 		FSpudClassMetadata& Meta;
 		FMemoryWriter& Out;
 	public:
-		StorePropertyVisitor(USpudState* ParentState, FSpudClassDef& InClassDef, TArray<uint32>& InPropertyOffsets, FSpudClassMetadata& InMeta, FMemoryWriter& InOut);
+		StorePropertyVisitor(USpudState* ParentState, FSpudClassDef& InClassDef, TPrefixedPropertyOffsets& InPrefixToPropertyOffsets, FSpudClassMetadata& InMeta, FMemoryWriter& InOut);
 		void StoreNestedUObjectIfNeeded(UObject* RootObject, FProperty* Property, uint32 CurrentPrefixID, void* ContainerPtr, int Depth);
 		virtual bool VisitProperty(UObject* RootObject, FProperty* Property, uint32 CurrentPrefixID,
 		                           void* ContainerPtr, int Depth) override;
@@ -133,7 +133,7 @@ protected:
 	void StoreLevelActorDestroyed(AActor* Actor, FSpudSaveData::TLevelDataPtr LevelData);
 	void StoreGlobalObject(UObject* Obj, FSpudNamedObjectData* Data);
 	void StoreObjectProperties(UObject* Obj, FSpudPropertyData& Properties, FSpudClassMetadata& Meta, int StartDepth = 0);
-	void StoreObjectProperties(UObject* Obj, uint32 PrefixID, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta, FMemoryWriter& Out, int StartDepth = 0);
+	void StoreObjectProperties(UObject* Obj, uint32 PrefixID, TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta, FMemoryWriter& Out, int StartDepth = 0);
 
 	// Actually restores the world, on the assumption that it's already loaded into the correct map
 	void RestoreLoadedWorld(UWorld* World, bool bSingleLevel, const FString& OnlyLevelName = "");
@@ -149,11 +149,11 @@ protected:
 	void RestoreCoreActorData(AActor* Actor, const FSpudCoreActorData& FromData);
 	void RestoreObjectProperties(UObject* Obj, const FSpudPropertyData& FromData, const FSpudClassMetadata& Meta,
 	                             const TMap<FGuid, UObject*>* RuntimeObjects, int StartDepth = 0);
-	void RestoreObjectProperties(UObject* Obj, FMemoryReader& In, const TArray<uint32>& PropertyOffsets, const FSpudClassMetadata& Meta, const TMap<FGuid, UObject*>* RuntimeObjects, int StartDepth = 0);
-	void RestoreObjectPropertiesFast(UObject* Obj, FMemoryReader& In, const TArray<uint32>& PropertyOffsets,
+	void RestoreObjectProperties(UObject* Obj, FMemoryReader& In, uint32 PrefixID, const TPrefixedPropertyOffsets& PrefixToPropertyOffsets, const FSpudClassMetadata& Meta, const TMap<FGuid, UObject*>* RuntimeObjects, int StartDepth = 0);
+	void RestoreObjectPropertiesFast(UObject* Obj, FMemoryReader& In, uint32 PrefixID, const TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	                                 const FSpudClassMetadata& Meta, const FSpudClassDef*
 	                                 ClassDef, const TMap<FGuid, UObject*>* RuntimeObjects, int StartDepth = 0);
-	void RestoreObjectPropertiesSlow(UObject* Obj, FMemoryReader& In, const TArray<uint32>& PropertyOffsets,
+	void RestoreObjectPropertiesSlow(UObject* Obj, FMemoryReader& In, uint32 PrefixID, const TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	                                 const FSpudClassMetadata& Meta,
 	                                 const FSpudClassDef* ClassDef, const TMap<FGuid, UObject*>* RuntimeObjects, int StartDepth = 0);
 
@@ -163,12 +163,12 @@ protected:
 		USpudState* ParentState; // weak but ok since used in scope
 		const FSpudClassDef& ClassDef;
 		const FSpudClassMetadata& Meta;
-		const TArray<uint32>& PropertyOffsets;
+		const TPrefixedPropertyOffsets& PrefixToPropertyOffsets;
 		const TMap<FGuid, UObject*>* RuntimeObjects;
 		FMemoryReader& DataIn;
 	public:
-		RestorePropertyVisitor(USpudState* Parent, FMemoryReader& InDataIn, const TArray<uint32>& InPropertyOffsets, const FSpudClassDef& InClassDef, const FSpudClassMetadata& InMeta, const TMap<FGuid, UObject*>* InRuntimeObjects):
-			ParentState(Parent), ClassDef(InClassDef), Meta(InMeta), PropertyOffsets(InPropertyOffsets), RuntimeObjects(InRuntimeObjects), DataIn(InDataIn) {}
+		RestorePropertyVisitor(USpudState* Parent, FMemoryReader& InDataIn, const TPrefixedPropertyOffsets& InPrefixToPropertyOffsets, const FSpudClassDef& InClassDef, const FSpudClassMetadata& InMeta, const TMap<FGuid, UObject*>* InRuntimeObjects):
+			ParentState(Parent), ClassDef(InClassDef), Meta(InMeta), PrefixToPropertyOffsets(InPrefixToPropertyOffsets), RuntimeObjects(InRuntimeObjects), DataIn(InDataIn) {}
 
 		virtual uint32 GetNestedPrefix(FProperty* Prop, uint32 CurrentPrefixID) override;
 		virtual void RestoreNestedUObjectIfNeeded(UObject* RootObject, FProperty* Property, uint32 CurrentPrefixID, void* ContainerPtr, int Depth);
@@ -182,9 +182,9 @@ protected:
 		TArray<FSpudPropertyDef>::TConstIterator StoredPropertyIterator;
 	public:
 		RestoreFastPropertyVisitor(USpudState* Parent, const TArray<FSpudPropertyDef>::TConstIterator& InStoredPropertyIterator,
-		                           FMemoryReader& InDataIn, const TArray<uint32>& InPropertyOffsets, const FSpudClassDef& InClassDef,
+		                           FMemoryReader& InDataIn, const TPrefixedPropertyOffsets& InPrefixToPropertyOffsets, const FSpudClassDef& InClassDef,
 		                           const FSpudClassMetadata& InMeta, const TMap<FGuid, UObject*>* InRuntimeObjects)
-			: RestorePropertyVisitor(Parent, InDataIn, InPropertyOffsets, InClassDef, InMeta, InRuntimeObjects),
+			: RestorePropertyVisitor(Parent, InDataIn, InPrefixToPropertyOffsets, InClassDef, InMeta, InRuntimeObjects),
 			  StoredPropertyIterator(InStoredPropertyIterator)
 		{
 		}
@@ -197,10 +197,11 @@ protected:
 	class RestoreSlowPropertyVisitor : public RestorePropertyVisitor
 	{
 	public:
-		RestoreSlowPropertyVisitor(USpudState* Parent, FMemoryReader& InDataIn, const TArray<uint32>& InPropertyOffsets,
+		RestoreSlowPropertyVisitor(USpudState* Parent, FMemoryReader& InDataIn,
+								   const TPrefixedPropertyOffsets& InPrefixToPropertyOffsets,
 								   const FSpudClassDef& InClassDef, const FSpudClassMetadata& InMeta,
 								   const TMap<FGuid, UObject*>* InRuntimeObjects)
-			: RestorePropertyVisitor(Parent, InDataIn, InPropertyOffsets, InClassDef, InMeta, InRuntimeObjects) {}
+			: RestorePropertyVisitor(Parent, InDataIn, InPrefixToPropertyOffsets, InClassDef, InMeta, InRuntimeObjects) {}
 
 		virtual bool VisitProperty(UObject* RootObject, FProperty* Property, uint32 CurrentPrefixID,
 		                           void* ContainerPtr, int Depth) override;
