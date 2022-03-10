@@ -1307,79 +1307,6 @@ bool USpudState::LoadSaveInfoFromArchive(FArchive& SPUDAr, USpudSaveGameInfo& Ou
 	
 }
 
-bool USpudState::GetActorReferenceString(AActor* ActorToReference, const AActor* ReferencingActor, FString& LevelReferenceString, FString& ActorReferenceString) const
-{
-	if(!ActorToReference)
-	{
-		LevelReferenceString.Empty();
-		ActorReferenceString.Empty();
-		return false;
-	}
-	if(!SpudPropertyUtil::GetActorReferenceString(ActorToReference, ReferencingActor, GetWorldReferenceLookups(), LevelReferenceString, ActorReferenceString))
-	{
-		UE_LOG(LogSpudState, Warning, TEXT("Unable to determine actor reference string for: '%s'. Add SpudGuid to be able to reference this actor!"), *ActorToReference->GetPathName());
-		return false;
-	}
-	return true;
-}
-
-AActor* USpudState::GetReferenceStringActor(const FString& LevelReferenceString, const FString& ActorReferenceString, AActor* ReferencingActor) const
-{
-	if(ActorReferenceString.IsEmpty())
-	{
-		// Empty lookups are ok, no warnings, just return null as would be expected not passing in a valid string to lookup.
-		return nullptr;
-	}
-	if(!ReferencingActor)
-	{
-		UE_LOG(LogSpudState, Warning, TEXT("SpudState::GetReferenceStringActor called with invalid ReferencingActor!"));
-		return nullptr;
-	}
-	
-	AActor* refActor = SpudPropertyUtil::GetReferencedActor(LevelReferenceString,
-															ActorReferenceString,
-															GetWorldReferenceLookups(),
-															ReferencingActor->GetLevel(),
-															ReferencingActor->GetPathName());
-	if(!refActor)
-	{
-		UE_LOG(LogSpudState, Warning, TEXT("Unable to resolve actor by reference: '%s'"), *ActorReferenceString);
-	}
-
-	return refActor;
-}
-
-void USpudState::AssignNameToLevel(ULevel* Level, const FString& NameToAssign)
-{
-	if(Level)
-	{
-		WorldLevelsToName.Add(Level, NameToAssign);
-		int32 numFound = 0;
-		for(const TPair<TWeakObjectPtr<ULevel>, FString>& worldLevelPair : WorldLevelsToName)
-		{
-			if(worldLevelPair.Value == NameToAssign)
-			{
-				++numFound;
-			}
-		}
-
-		if(numFound > 1)
-		{
-			UE_LOG(LogSpudState, Error, TEXT("AssignNameToLevel assigning multiple levels the same name. This will cause issues!"));
-		}
-	}
-}
-
-void USpudState::UnassignNameFromLevel(ULevel* Level)
-{
-	WorldLevelsToName.Remove(Level);
-}
-
-void USpudState::ClearAssignedNameToLevels()
-{
-	WorldLevelsToName.Empty();
-}
-
 FString USpudState::GetActiveGameLevelFolder()
 {
 	return FString::Printf(TEXT("%sSpudCache/"), *FPaths::ProjectSavedDir());	
@@ -1472,4 +1399,77 @@ TArray<FString> USpudState::GetLevelNames(bool bLoadedOnly)
 		}
 	}
 	return Ret;
+}
+
+bool USpudState::GetActorReferenceString(AActor* ActorToReference, const AActor* ReferencingActor, FString& LevelReferenceString, FString& ActorReferenceString) const
+{
+	if(!ActorToReference)
+	{
+		LevelReferenceString.Empty();
+		ActorReferenceString.Empty();
+		return false;
+	}
+	if(!SpudPropertyUtil::GetActorReferenceString(ActorToReference, ReferencingActor, GetWorldReferenceLookups(), LevelReferenceString, ActorReferenceString))
+	{
+		UE_LOG(LogSpudState, Warning, TEXT("Unable to determine actor reference string for: '%s'. Add SpudGuid to be able to reference this actor!"), *ActorToReference->GetPathName());
+		return false;
+	}
+	return true;
+}
+
+AActor* USpudState::GetReferenceStringActor(const FString& LevelReferenceString, const FString& ActorReferenceString, AActor* ReferencingActor) const
+{
+	if(ActorReferenceString.IsEmpty())
+	{
+		// Empty lookups are ok, no warnings, just return null as would be expected not passing in a valid string to lookup.
+		return nullptr;
+	}
+	if(!ReferencingActor)
+	{
+		UE_LOG(LogSpudState, Warning, TEXT("SpudState::GetReferenceStringActor called with invalid ReferencingActor!"));
+		return nullptr;
+	}
+	
+	AActor* refActor = SpudPropertyUtil::GetReferencedActor(LevelReferenceString,
+															ActorReferenceString,
+															GetWorldReferenceLookups(),
+															ReferencingActor->GetLevel(),
+															ReferencingActor->GetPathName());
+	if(!refActor)
+	{
+		UE_LOG(LogSpudState, Warning, TEXT("Unable to resolve actor by reference: '%s'"), *ActorReferenceString);
+	}
+
+	return refActor;
+}
+
+void USpudState::AssignNameToLevel(ULevel* Level, const FString& NameToAssign)
+{
+	if(Level)
+	{
+		WorldLevelsToName.Add(Level, NameToAssign);
+		int32 numFound = 0;
+		for(const TPair<TWeakObjectPtr<ULevel>, FString>& worldLevelPair : WorldLevelsToName)
+		{
+			if(worldLevelPair.Value == NameToAssign)
+			{
+				++numFound;
+			}
+		}
+
+		if(numFound > 1)
+		{
+			UE_LOG(LogSpudState, Error, TEXT("AssignNameToLevel assigning multiple levels the same name. This will cause issues!"));
+		}
+	}
+}
+
+void USpudState::UnassignNameFromLevel(ULevel* Level)
+{
+	WorldLevelsToName.Remove(Level);
+}
+
+void USpudState::ClearAssignedNameToLevels()
+{
+	WorldLevelsToName.Empty();
 }
