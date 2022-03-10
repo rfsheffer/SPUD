@@ -201,7 +201,7 @@ protected:
 	public:
 		RestoreSlowPropertyVisitor(USpudState* Parent, FMemoryReader& InDataIn,
 								   const TPrefixedPropertyOffsets& InPrefixToPropertyOffsets,
-								   TSharedPtr<const FSpudClassDef>, const FSpudClassMetadata& InMeta,
+								   TSharedPtr<const FSpudClassDef> InClassDef, const FSpudClassMetadata& InMeta,
 								   const TMap<FGuid, UObject*>* InRuntimeObjects)
 			: RestorePropertyVisitor(Parent, InDataIn, InPrefixToPropertyOffsets, InClassDef, InMeta, InRuntimeObjects) {}
 

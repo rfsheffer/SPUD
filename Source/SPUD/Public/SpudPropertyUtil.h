@@ -197,7 +197,7 @@ public:
 	static FString GetNestedPrefix(uint32 PrefixIDSoFar, FProperty* Prop, const FSpudClassMetadata& Meta);
 	static uint32 GetNestedPrefixID(uint32 PrefixIDSoFar, FProperty* Prop, const FSpudClassMetadata& Meta);
 	static uint32 FindOrAddNestedPrefixID(uint32 PrefixIDSoFar, FProperty* Prop, FSpudClassMetadata& Meta);
-	static void RegisterProperty(uint32 PropNameID, uint32 PrefixID, uint16 DataType, TSharedPtr<FSpudClassDef> ClassDef, TArray<uint32>& PropertyOffsets, FArchive& Out);
+	static void RegisterProperty(uint32 PropNameID, uint32 PrefixID, uint16 DataType, TSharedPtr<FSpudClassDef> ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FArchive& Out);
 	static void RegisterProperty(const FString& Name,
 	                             uint32 PrefixID,
 	                             uint16 DataType,
@@ -325,7 +325,7 @@ protected:
 
 	template <class PropType, typename ValueType>
 	static bool TryWritePropertyData(FProperty* Prop, uint32 PrefixID, const void* Data, bool bIsArrayElement, int Depth,
-	                          FSpudClassDef& ClassDef, TArray<uint32>& PropertyOffsets, FSpudClassMetadata& Meta,
+	                          TSharedPtr<FSpudClassDef> ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets, FSpudClassMetadata& Meta,
 	                          FArchive& Out)
     {
     	if (auto IProp = CastField<PropType>(Prop))
@@ -356,10 +356,16 @@ protected:
 	                                     TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	                                     FSpudClassMetadata& Meta,
 	                                     FArchive& Out);
-	static bool TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data, bool bIsArrayElement,
-										       int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
+	static bool TryWriteSoftObjectPropertyData(FProperty* Property,
+											   uint32 PrefixID,
+											   const void* Data,
+											   bool bIsArrayElement,
+										       int Depth,
+										       TSharedPtr<FSpudClassDef> ClassDef,
+										       TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 										       const AActor* referencingActor,
-										       const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
+										       const FWorldReferenceLookups& WorldReferenceLookups,
+										       FSpudClassMetadata& Meta,
 										       FArchive& Out);
 	static FString WriteActorRefPropertyData(FObjectProperty* OProp,
 	                                         AActor* Actor,
@@ -410,7 +416,8 @@ protected:
 													  TSharedPtr<FSpudClassDef> ClassDef, 
 													  TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	                                       			  const AActor* referencingActor,
-	                                       			  const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
+	                                       			  const FWorldReferenceLookups& WorldReferenceLookups,
+	                                       			  FSpudClassMetadata& Meta,
 	                                       			  FArchive& Out);
 
 	

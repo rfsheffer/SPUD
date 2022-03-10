@@ -1210,7 +1210,7 @@ FString SpudPropertyUtil::GetLogPrefix(const FProperty* Property, int Depth)
 }
 
 bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
-													bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef,
+													bool bIsArrayElement, int Depth, TSharedPtr<FSpudClassDef> ClassDef,
 													TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 													const AActor* referencingActor,
 													const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
@@ -1281,7 +1281,7 @@ bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint3
 				else
 				{
 					UE_LOG(LogSpudProps, Error, TEXT("Soft Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
-					*ClassDef.ClassName, *SoftObjProp->GetName(), *LiveActor->GetName());
+					*ClassDef->ClassName, *SoftObjProp->GetName(), *LiveActor->GetName());
 				}
 			}
 			else if(ObjPtr.Get())
@@ -1356,7 +1356,7 @@ bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint3
 					else
 					{
 						UE_LOG(LogSpudProps, Error, TEXT("Weak Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
-						*ClassDef.ClassName, *WeakObjProp->GetName(), *LiveActor->GetName());
+						*ClassDef->ClassName, *WeakObjProp->GetName(), *LiveActor->GetName());
 					}
 				}
 				else
@@ -1511,7 +1511,7 @@ bool SpudPropertyUtil::TryReadSoftObjectPropertyData(FProperty* Prop, void* Data
 }
 
 bool SpudPropertyUtil::TryWriteMulticastDelegatePropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
-	bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
+	bool bIsArrayElement, int Depth, TSharedPtr<FSpudClassDef> ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	const AActor* referencingActor, const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta, FArchive& Out)
 {
 	if (const auto MDProp = CastField<FMulticastDelegateProperty>(Property))
@@ -1564,7 +1564,7 @@ bool SpudPropertyUtil::TryWriteMulticastDelegatePropertyData(FProperty* Property
 								else
 								{
 									UE_LOG(LogSpudProps, Error, TEXT("Multicast Delegate Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
-												*ClassDef.ClassName, *MDProp->GetName(), *BoundActor->GetName());
+												*ClassDef->ClassName, *MDProp->GetName(), *BoundActor->GetName());
 								}
 							}
 						}

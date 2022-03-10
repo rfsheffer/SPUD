@@ -504,7 +504,7 @@ void USpudState::RestoreLevel(ULevel* Level)
 	// Destroy actors in level but missing from save state
 	for (auto&& DestroyedActor : LevelData->DestroyedActors.Values)
 	{
-		DestroyActor(DestroyedActor, Level);			
+		DestroyActor(*DestroyedActor, Level);			
 	}
 
 	// Remove the levels we added temporarily
@@ -897,7 +897,7 @@ void USpudState::RestoreObjectPropertiesFast(UObject* Obj, FMemoryReader& In,
 	UE_LOG(LogSpudState, Verbose, TEXT("%s FAST path, %d properties"), *SpudPropertyUtil::GetLogPrefix(StartDepth), ClassDef->Properties.Num());
 	const auto StoredPropertyIterator = ClassDef->Properties.CreateConstIterator();
 
-	RestoreFastPropertyVisitor Visitor(this, StoredPropertyIterator, In, PrefixToPropertyOffsets, *ClassDef, Meta, RuntimeObjects);
+	RestoreFastPropertyVisitor Visitor(this, StoredPropertyIterator, In, PrefixToPropertyOffsets, ClassDef, Meta, RuntimeObjects);
 	SpudPropertyUtil::VisitPersistentProperties(Obj, Visitor, PrefixID, StartDepth);
 	
 }
@@ -912,7 +912,7 @@ void USpudState::RestoreObjectPropertiesSlow(UObject* Obj, FMemoryReader& In,
 {
 	UE_LOG(LogSpudState, Verbose, TEXT("%s SLOW path, %d properties"), *SpudPropertyUtil::GetLogPrefix(StartDepth), ClassDef->Properties.Num());
 
-	RestoreSlowPropertyVisitor Visitor(this, In, PrefixToPropertyOffsets, *ClassDef, Meta, RuntimeObjects);
+	RestoreSlowPropertyVisitor Visitor(this, In, PrefixToPropertyOffsets, ClassDef, Meta, RuntimeObjects);
 	SpudPropertyUtil::VisitPersistentProperties(Obj, Visitor, PrefixID, StartDepth);
 }
 
@@ -1024,14 +1024,14 @@ bool USpudState::RestoreSlowPropertyVisitor::VisitProperty(UObject* RootObject, 
 	const TMap<int, uint32>* PropertyOffsets = PrefixToPropertyOffsets.Find(CurrentPrefixID);
 	if(!PropertyOffsets)
 	{
-		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, no property offsets for %s on class %s"), *Property->GetName(), *ClassDef.ClassName);
+		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, no property offsets for %s on class %s"), *Property->GetName(), *ClassDef->ClassName);
 		return true;
 	}
 
 	const uint32* dataOffset = PropertyOffsets->Find(*PropertyIndexPtr);
 	if (!dataOffset)
 	{
-		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, no property offset for %s on class %s"), *Property->GetName(), *ClassDef.ClassName);
+		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, no property offset for %s on class %s"), *Property->GetName(), *ClassDef->ClassName);
 		return true;		
 	}
 	DataIn.Seek(*dataOffset);
@@ -1140,7 +1140,7 @@ void USpudState::RestoreLoadedWorld(UWorld* World, bool bSingleLevel, const FStr
 			// Destroy actors in level but missing from save state
 			for (auto&& DestroyedActor : LevelData->DestroyedActors.Values)
 			{
-				DestroyActor(DestroyedActor, LevelToRestore);			
+				DestroyActor(*DestroyedActor, LevelToRestore);			
 			}
 
 			UE_LOG(LogSpudState, Verbose, TEXT("RESTORE level %s - Complete"), *LevelName);
