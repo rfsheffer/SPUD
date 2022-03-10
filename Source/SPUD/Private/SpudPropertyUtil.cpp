@@ -354,307 +354,6 @@ bool SpudPropertyUtil::TryReadEnumPropertyData(FProperty* Prop, void* Data,
 	return false;
 }
 
-bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
-													bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef,
-													TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
-													const AActor* referencingActor,
-													const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
-													FArchive& Out)
-{
-	if (const auto SoftClassProp = ExactCastField<FSoftClassProperty>(Property))
-	{
-		// Class reference properties are stored as a class ClassID
-		if (!bIsArrayElement)
-			RegisterProperty(SoftClassProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
-
-		uint32 ClassID;
-		FString Ret = TEXT("NULL");
-		// We already have the Actor so no need to get property value
-		const FSoftObjectPtr ObjPtr = SoftClassProp->GetPropertyValue(Data);
-		if(ObjPtr.IsValid())
-		{
-			// Store the class full path as an ID
-			Ret = ObjPtr.GetUniqueID().ToString();
-			ClassID = Meta.FindOrAddClassIDFromName(Ret);
-		}
-		else // null
-		{
-			ClassID = SPUDDATA_CLASSID_NONE;
-		}
-	
-		Out << ClassID;
-		
-		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Property, Depth), *Ret);
-		return true;
-	}
-	
-	if (const auto SoftObjProp = ExactCastField<FSoftObjectProperty>(Property))
-	{
-		if (!bIsArrayElement)
-			RegisterProperty(SoftObjProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
-
-		// Flags: 0 - Not Saved, 1 - NULL the soft reference, 2 - Asset reference, 3 - Actor reference
-		// Only flags 2 and 3 have a string serialized
-		uint8 SoftObjectFlag = 0;
-		FString PrePath;
-		FString Lookup;
-		
-		const FSoftObjectPtr ObjPtr = SoftObjProp->GetPropertyValue(Data);
-		const FSoftObjectPath ObjPath = ObjPtr.ToSoftObjectPath();
-		if(ObjPath.IsNull())
-		{
-			// Just null, we will null on restore
-			SoftObjectFlag = 1;
-		}
-		else if(ObjPath.IsAsset())
-		{
-			// We just save off the asset path to set it once we reload
-			SoftObjectFlag = 2;
-			Lookup = ObjPath.GetAssetPathString();
-		}
-		else
-		{
-			// Try to resolve the live actor being referenced. We don't support referencing anything else at this time.
-			AActor* LiveActor = Cast<AActor>(ObjPtr.Get());
-			if(LiveActor)
-			{
-				if(GetActorReferenceString(LiveActor, referencingActor, WorldReferenceLookups, PrePath, Lookup))
-				{
-					// Third style
-					SoftObjectFlag = 3;
-				}
-				else
-				{
-					UE_LOG(LogSpudProps, Error, TEXT("Soft Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
-					*ClassDef.ClassName, *SoftObjProp->GetName(), *LiveActor->GetName());
-				}
-			}
-			else if(ObjPtr.Get())
-			{
-				UE_LOG(LogSpudProps, Warning, TEXT("Unable to save soft object reference to: %s"), *ObjPath.ToString());
-			}
-			else
-			{
-				// Null on restore, we can at least support that.
-				SoftObjectFlag = 1;
-			}
-		}
-
-		Out << SoftObjectFlag;
-		
-		if(SoftObjectFlag)
-		{
-			// Serialize the identifying string in the case of a valid result
-			if(SoftObjectFlag == 3)
-			{
-				Out << PrePath;
-			}
-			if(SoftObjectFlag > 1)
-			{
-				Out << Lookup;
-			}
-			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s:%s"), *GetLogPrefix(Property, Depth), *PrePath, Lookup.IsEmpty() ? TEXT("NULL") : *Lookup);
-		}
-		
-		return true;
-	}
-
-	if (const auto WeakObjProp = ExactCastField<FWeakObjectProperty>(Property))
-	{
-		if (!bIsArrayElement)
-			RegisterProperty(WeakObjProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
-
-		// Flags: 0 - Not Saved, 1 - NULL the weak reference, 2 - Asset reference, 3 - Actor reference
-		// Only flags 2 and 3 have a string serialized
-		uint8 WeakObjectFlag = 0;
-		FString PrePath;
-		FString Lookup;
-		
-		const FWeakObjectPtr ObjPtr = WeakObjProp->GetPropertyValue(Data);
-		if(ObjPtr.IsExplicitlyNull() || ObjPtr.IsStale())
-		{
-			// Just null, we will null on restore
-			// Stale is a good check to say this thing was going away anyway.
-			WeakObjectFlag = 1;
-		}
-		else
-		{
-			UObject* obj = ObjPtr.Get();
-			check(obj);
-			if(obj->IsAsset())
-			{
-				// We just save off the asset path to set it once we reload
-				WeakObjectFlag = 2;
-				Lookup = obj->GetPathName();
-			}
-			else
-			{
-				// Try to resolve the live actor being referenced. We don't support referencing anything else at this time.
-				AActor* LiveActor = Cast<AActor>(obj);
-				if(LiveActor)
-				{
-					if(GetActorReferenceString(LiveActor, referencingActor, WorldReferenceLookups, PrePath, Lookup))
-					{
-						// Third style
-						WeakObjectFlag = 3;
-					}
-					else
-					{
-						UE_LOG(LogSpudProps, Error, TEXT("Weak Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
-						*ClassDef.ClassName, *WeakObjProp->GetName(), *LiveActor->GetName());
-					}
-				}
-				else
-				{
-					UE_LOG(LogSpudProps, Warning, TEXT("Unable to save weak object reference to: %s"), *obj->GetPathName());
-				}
-			}
-		}
-
-		Out << WeakObjectFlag;
-		
-		if(WeakObjectFlag)
-		{
-			// Serialize the identifying string in the case of a valid result
-			if(WeakObjectFlag == 3)
-			{
-				Out << PrePath;
-			}
-			if(WeakObjectFlag > 1)
-			{
-				Out << Lookup;
-			}
-			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s:%s"), *GetLogPrefix(Property, Depth), *PrePath, Lookup.IsEmpty() ? TEXT("NULL") : *Lookup);
-		}
-		
-		return true;
-	}
-
-	return false;
-}
-
-bool SpudPropertyUtil::TryReadSoftObjectPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
-													 const FWorldReferenceLookups& WorldReferenceLookups,
-													 ULevel* Level, const FSpudClassMetadata& Meta, int Depth, FArchive& In)
-{
-	const auto SoftClassProp = ExactCastField<FSoftClassProperty>(Prop);
-	if (SoftClassProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
-		// we ignore array flag since we could be processing inner
-	{
-		uint32 ClassID;
-		In << ClassID;
-		
-		FString Ret = TEXT("NULL");
-		UClass* LoadedClass = nullptr;
-		if (ClassID != SPUDDATA_CLASSID_NONE)
-		{
-			Ret = Meta.GetClassNameFromID(ClassID);
-			LoadedClass = StaticLoadClass(SoftClassProp->MetaClass, nullptr, *Ret);
-			if (!LoadedClass)
-			{
-				UE_LOG(LogSpudProps, Error, TEXT("Cannot restore class %s to class property. "
-												"Either the class is missing or the class property no longer accepts this class!"), *Ret);
-			}
-		}
-
-		SoftClassProp->SetObjectPropertyValue(Data, LoadedClass);
-		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *Ret);
-		return true;
-	}
-
-	const auto SoftObjProp = ExactCastField<FSoftObjectProperty>(Prop);
-	if (SoftObjProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
-		// we ignore array flag since we could be processing inner
-	{
-		uint8 SoftObjectFlag;
-		In << SoftObjectFlag;
-
-		if(SoftObjectFlag == 1)
-		{
-			// NULL it
-			const FSoftObjectPtr ptr;
-			SoftObjProp->SetPropertyValue(Data, ptr);
-			UE_LOG(LogSpudProps, Verbose, TEXT("%s = NULL"), *GetLogPrefix(Prop, Depth));
-		}
-		else if(SoftObjectFlag == 2)
-		{
-			// Set the asset reference string
-			FString AssetPath;
-			In << AssetPath;
-			const FSoftObjectPtr ptr = FSoftObjectPtr(FSoftObjectPath(AssetPath));
-			SoftObjProp->SetPropertyValue(Data, ptr);
-			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *AssetPath);
-		}
-		else if(SoftObjectFlag == 3)
-		{
-			// Set the actor if we can resolve it
-			FString LevelRefString;
-			In << LevelRefString;
-			FString ActorRefString;
-			In << ActorRefString;
-			
-			if(AssignReferencedActorToProperty(LevelRefString, ActorRefString, WorldReferenceLookups, Level, SoftObjProp, Data))
-			{
-				UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ActorRefString);
-			}
-			else
-			{
-				UE_LOG(LogSpudProps, Warning, TEXT("%s : Unable to re-resolve actor reference '%s'"), *GetLogPrefix(Prop, Depth), *ActorRefString);
-			}
-		}
-
-		return true;
-	}
-
-	const auto WeakObjProp = ExactCastField<FWeakObjectProperty>(Prop);
-	if (WeakObjProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
-		// we ignore array flag since we could be processing inner
-	{
-		uint8 WeakObjectFlag;
-		In << WeakObjectFlag;
-
-		if(WeakObjectFlag == 1)
-		{
-			// NULL it
-			WeakObjProp->SetObjectPropertyValue(Data, nullptr);
-			UE_LOG(LogSpudProps, Verbose, TEXT("%s = NULL"), *GetLogPrefix(Prop, Depth));
-		}
-		else if(WeakObjectFlag == 2)
-		{
-			// Set the asset reference string
-			FString AssetPath;
-			In << AssetPath;
-
-			UObject* assetRef = StaticLoadObject(WeakObjProp->PropertyClass, nullptr, *AssetPath);
-			WeakObjProp->SetObjectPropertyValue(Data, assetRef);
-			
-			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *AssetPath);
-		}
-		else if(WeakObjectFlag == 3)
-		{
-			// Set the actor if we can resolve it
-			FString ActorLevelString;
-			In << ActorLevelString;
-			
-			FString ActorRefString;
-			In << ActorRefString;
-
-			if(AssignReferencedActorToProperty(ActorLevelString, ActorRefString, WorldReferenceLookups, Level, WeakObjProp, Data))
-			{
-				UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ActorRefString);
-			}
-			else
-			{
-				UE_LOG(LogSpudProps, Warning, TEXT("%s : Unable to re-resolve actor reference '%s'"), *GetLogPrefix(Prop, Depth), *ActorRefString);
-			}
-		}
-
-		return true;
-	}
-	
-	return false;
-}
-
 FString SpudPropertyUtil::WriteActorRefPropertyData(FObjectProperty* OProp, AActor* Actor, uint32 PrefixID, const void* Data,
 	bool bIsArrayElement, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
 	const AActor* referencingActor,
@@ -778,149 +477,6 @@ bool SpudPropertyUtil::TryWriteUObjectPropertyData(FProperty* Property, uint32 P
 		}
 		return true;
 	}
-	return false;
-}
-
-bool SpudPropertyUtil::TryWriteMulticastDelegatePropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
-	bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
-	const AActor* referencingActor, const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta, FArchive& Out)
-{
-	if (const auto MDProp = CastField<FMulticastDelegateProperty>(Property))
-	{
-		if (!bIsArrayElement)
-			RegisterProperty(MDProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
-
-		FString ScriptDelegateDesc;
-		const FMulticastScriptDelegate* scriptDelegate = MDProp->GetMulticastDelegate(Data);
-		if(scriptDelegate)
-		{
-			// MC delegates are kinda closes but we have this ToString which describes the function name we need to store
-			// in the object, so we use that in corelation with the GetObject
-			ScriptDelegateDesc = scriptDelegate->ToString<UObject>();
-			if(ScriptDelegateDesc != TEXT( "<Unbound>" ))
-			{
-				// Unreachables we will just call NULLs (cannot be saved)
-				TArray< UObject* > BoundObjects = scriptDelegate->GetAllObjectsEvenIfUnreachable();
-
-				TArray<TPair<TPair<FString, FString>, FString>> ObjRefNameToFunction;
-				
-				// Chop off the array brackets
-				FString BindingsDesc = ScriptDelegateDesc.Mid(1, ScriptDelegateDesc.Len() - 2);
-				
-				TCHAR *ContextStr = nullptr;
-				TCHAR *BindingsStr = FCString::Strtok(BindingsDesc.GetCharArray().GetData(), TEXT(","), &ContextStr);
-
-				int32 CurObject = 0;
-				while (BindingsStr && BoundObjects.IsValidIndex(CurObject))
-				{
-					if(BoundObjects[CurObject])
-					{
-						AActor* BoundActor = Cast<AActor>(BoundObjects[CurObject]);
-						if(BoundActor)
-						{
-							FString ObjBindingStr = BindingsStr;
-							ObjBindingStr.TrimStartAndEndInline();
-
-							FString FunctionName;
-							ObjBindingStr.Split(TEXT("."), nullptr, &FunctionName, ESearchCase::IgnoreCase, ESearchDir::FromEnd);
-
-							if(!FunctionName.IsEmpty())
-							{
-								FString LevelString;
-								FString RefString;
-								if(GetActorReferenceString(BoundActor, referencingActor, WorldReferenceLookups, LevelString, RefString))
-								{
-									ObjRefNameToFunction.Emplace(TPair<FString, FString>(LevelString, RefString), FunctionName);
-								}
-								else
-								{
-									UE_LOG(LogSpudProps, Error, TEXT("Multicast Delegate Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
-												*ClassDef.ClassName, *MDProp->GetName(), *BoundActor->GetName());
-								}
-							}
-						}
-						else
-						{
-							UE_LOG(LogSpudProps, Verbose, TEXT("Unable to save Multicast Delegate binding to non-actor object %s"), *BoundObjects[CurObject]->GetPathName());
-						}
-					}
-					
-					BindingsStr = FCString::Strtok(nullptr, TEXT(","), &ContextStr);
-					++CurObject;
-				}
-
-				// Now output all of the bindings we should be able to rebind when a restore happens
-				int32 NumBindings = ObjRefNameToFunction.Num();
-				Out << NumBindings;
-
-				for(TPair<TPair<FString, FString>, FString>& bindRef : ObjRefNameToFunction)
-				{
-					Out << bindRef.Key.Key;
-					Out << bindRef.Key.Value;
-					Out << bindRef.Value;
-				}
-			}
-			else
-			{
-				// Nothing is bound, zero :)
-				int32 NumBindings = 0;
-				Out << NumBindings;
-			}
-		}
-		else
-		{
-			int32 NumBindings = 0;
-			Out << NumBindings;
-			ScriptDelegateDesc = TEXT( "<Unbound>" );
-		}
-
-		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(MDProp, Depth), *ScriptDelegateDesc);
-		return true;
-	}
-	
-	return false;
-}
-
-bool SpudPropertyUtil::TryReadMulticastDelegatePropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
-															const FWorldReferenceLookups& WorldReferenceLookups,
-															ULevel* Level, const FSpudClassMetadata& Meta, int Depth, FArchive& In)
-{
-	if (const auto MDProp = CastField<FMulticastDelegateProperty>(Prop))
-	{
-		FMulticastScriptDelegate ScriptDelegateOut;
-		
-		int32 NumBoundActors;
-		In << NumBoundActors;
-
-		FString actorLevelRefName;
-		FString actorRefName;
-		FString actorFuncName;
-		for(int32 BoundActorIndex = 0; BoundActorIndex < NumBoundActors; ++BoundActorIndex)
-		{
-			In << actorLevelRefName;
-			In << actorRefName;
-			In << actorFuncName;
-
-			AActor* BoundActor = GetReferencedActor(actorLevelRefName, actorRefName, WorldReferenceLookups, Level, MDProp->GetName());
-			if(BoundActor)
-			{
-				TScriptDelegate<FWeakObjectPtr> DelegateIn;
-				DelegateIn.BindUFunction(BoundActor, *actorFuncName);
-				ScriptDelegateOut.Add(DelegateIn);
-			}
-		}
-
-		MDProp->SetMulticastDelegate(Data, ScriptDelegateOut);
-
-		UE_SUPPRESS(LogSpudProps, Verbose, 
-		{
-			const FString ScriptDelegateDesc = ScriptDelegateOut.ToString<UObject>();
-			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ScriptDelegateDesc);
-		});
-
-		return true;
-	}
-	
 	return false;
 }
 
@@ -1592,4 +1148,446 @@ FString SpudPropertyUtil::GetLogPrefix(const FProperty* Property, int Depth)
 	return FString::Printf(TEXT(" |%s %s"), *Prefix, *Property->GetNameCPP());
 }
 
+bool SpudPropertyUtil::TryWriteSoftObjectPropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
+													bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef,
+													TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
+													const AActor* referencingActor,
+													const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta,
+													FArchive& Out)
+{
+	if (const auto SoftClassProp = ExactCastField<FSoftClassProperty>(Property))
+	{
+		// Class reference properties are stored as a class ClassID
+		if (!bIsArrayElement)
+			RegisterProperty(SoftClassProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
 
+		uint32 ClassID;
+		FString Ret = TEXT("NULL");
+		// We already have the Actor so no need to get property value
+		const FSoftObjectPtr ObjPtr = SoftClassProp->GetPropertyValue(Data);
+		if(ObjPtr.IsValid())
+		{
+			// Store the class full path as an ID
+			Ret = ObjPtr.GetUniqueID().ToString();
+			ClassID = Meta.FindOrAddClassIDFromName(Ret);
+		}
+		else // null
+		{
+			ClassID = SPUDDATA_CLASSID_NONE;
+		}
+	
+		Out << ClassID;
+		
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Property, Depth), *Ret);
+		return true;
+	}
+	
+	if (const auto SoftObjProp = ExactCastField<FSoftObjectProperty>(Property))
+	{
+		if (!bIsArrayElement)
+			RegisterProperty(SoftObjProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
+
+		// Flags: 0 - Not Saved, 1 - NULL the soft reference, 2 - Asset reference, 3 - Actor reference
+		// Only flags 2 and 3 have a string serialized
+		uint8 SoftObjectFlag = 0;
+		FString PrePath;
+		FString Lookup;
+		
+		const FSoftObjectPtr ObjPtr = SoftObjProp->GetPropertyValue(Data);
+		const FSoftObjectPath ObjPath = ObjPtr.ToSoftObjectPath();
+		if(ObjPath.IsNull())
+		{
+			// Just null, we will null on restore
+			SoftObjectFlag = 1;
+		}
+		else if(ObjPath.IsAsset())
+		{
+			// We just save off the asset path to set it once we reload
+			SoftObjectFlag = 2;
+			Lookup = ObjPath.GetAssetPathString();
+		}
+		else
+		{
+			// Try to resolve the live actor being referenced. We don't support referencing anything else at this time.
+			AActor* LiveActor = Cast<AActor>(ObjPtr.Get());
+			if(LiveActor)
+			{
+				if(GetActorReferenceString(LiveActor, referencingActor, WorldReferenceLookups, PrePath, Lookup))
+				{
+					// Third style
+					SoftObjectFlag = 3;
+				}
+				else
+				{
+					UE_LOG(LogSpudProps, Error, TEXT("Soft Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
+					*ClassDef.ClassName, *SoftObjProp->GetName(), *LiveActor->GetName());
+				}
+			}
+			else if(ObjPtr.Get())
+			{
+				UE_LOG(LogSpudProps, Warning, TEXT("Unable to save soft object reference to: %s"), *ObjPath.ToString());
+			}
+			else
+			{
+				// Null on restore, we can at least support that.
+				SoftObjectFlag = 1;
+			}
+		}
+
+		Out << SoftObjectFlag;
+		
+		if(SoftObjectFlag)
+		{
+			// Serialize the identifying string in the case of a valid result
+			if(SoftObjectFlag == 3)
+			{
+				Out << PrePath;
+			}
+			if(SoftObjectFlag > 1)
+			{
+				Out << Lookup;
+			}
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s:%s"), *GetLogPrefix(Property, Depth), *PrePath, Lookup.IsEmpty() ? TEXT("NULL") : *Lookup);
+		}
+		
+		return true;
+	}
+
+	if (const auto WeakObjProp = ExactCastField<FWeakObjectProperty>(Property))
+	{
+		if (!bIsArrayElement)
+			RegisterProperty(WeakObjProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
+
+		// Flags: 0 - Not Saved, 1 - NULL the weak reference, 2 - Asset reference, 3 - Actor reference
+		// Only flags 2 and 3 have a string serialized
+		uint8 WeakObjectFlag = 0;
+		FString PrePath;
+		FString Lookup;
+		
+		const FWeakObjectPtr ObjPtr = WeakObjProp->GetPropertyValue(Data);
+		if(ObjPtr.IsExplicitlyNull() || ObjPtr.IsStale())
+		{
+			// Just null, we will null on restore
+			// Stale is a good check to say this thing was going away anyway.
+			WeakObjectFlag = 1;
+		}
+		else
+		{
+			UObject* obj = ObjPtr.Get();
+			check(obj);
+			if(obj->IsAsset())
+			{
+				// We just save off the asset path to set it once we reload
+				WeakObjectFlag = 2;
+				Lookup = obj->GetPathName();
+			}
+			else
+			{
+				// Try to resolve the live actor being referenced. We don't support referencing anything else at this time.
+				AActor* LiveActor = Cast<AActor>(obj);
+				if(LiveActor)
+				{
+					if(GetActorReferenceString(LiveActor, referencingActor, WorldReferenceLookups, PrePath, Lookup))
+					{
+						// Third style
+						WeakObjectFlag = 3;
+					}
+					else
+					{
+						UE_LOG(LogSpudProps, Error, TEXT("Weak Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
+						*ClassDef.ClassName, *WeakObjProp->GetName(), *LiveActor->GetName());
+					}
+				}
+				else
+				{
+					UE_LOG(LogSpudProps, Warning, TEXT("Unable to save weak object reference to: %s"), *obj->GetPathName());
+				}
+			}
+		}
+
+		Out << WeakObjectFlag;
+		
+		if(WeakObjectFlag)
+		{
+			// Serialize the identifying string in the case of a valid result
+			if(WeakObjectFlag == 3)
+			{
+				Out << PrePath;
+			}
+			if(WeakObjectFlag > 1)
+			{
+				Out << Lookup;
+			}
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s:%s"), *GetLogPrefix(Property, Depth), *PrePath, Lookup.IsEmpty() ? TEXT("NULL") : *Lookup);
+		}
+		
+		return true;
+	}
+
+	return false;
+}
+
+bool SpudPropertyUtil::TryReadSoftObjectPropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
+													 const FWorldReferenceLookups& WorldReferenceLookups,
+													 ULevel* Level, const FSpudClassMetadata& Meta, int Depth, FArchive& In)
+{
+	const auto SoftClassProp = ExactCastField<FSoftClassProperty>(Prop);
+	if (SoftClassProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
+		// we ignore array flag since we could be processing inner
+	{
+		uint32 ClassID;
+		In << ClassID;
+		
+		FString Ret = TEXT("NULL");
+		UClass* LoadedClass = nullptr;
+		if (ClassID != SPUDDATA_CLASSID_NONE)
+		{
+			Ret = Meta.GetClassNameFromID(ClassID);
+			LoadedClass = StaticLoadClass(SoftClassProp->MetaClass, nullptr, *Ret);
+			if (!LoadedClass)
+			{
+				UE_LOG(LogSpudProps, Error, TEXT("Cannot restore class %s to class property. "
+												"Either the class is missing or the class property no longer accepts this class!"), *Ret);
+			}
+		}
+
+		SoftClassProp->SetObjectPropertyValue(Data, LoadedClass);
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *Ret);
+		return true;
+	}
+
+	const auto SoftObjProp = ExactCastField<FSoftObjectProperty>(Prop);
+	if (SoftObjProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
+		// we ignore array flag since we could be processing inner
+	{
+		uint8 SoftObjectFlag;
+		In << SoftObjectFlag;
+
+		if(SoftObjectFlag == 1)
+		{
+			// NULL it
+			const FSoftObjectPtr ptr;
+			SoftObjProp->SetPropertyValue(Data, ptr);
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = NULL"), *GetLogPrefix(Prop, Depth));
+		}
+		else if(SoftObjectFlag == 2)
+		{
+			// Set the asset reference string
+			FString AssetPath;
+			In << AssetPath;
+			const FSoftObjectPtr ptr = FSoftObjectPtr(FSoftObjectPath(AssetPath));
+			SoftObjProp->SetPropertyValue(Data, ptr);
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *AssetPath);
+		}
+		else if(SoftObjectFlag == 3)
+		{
+			// Set the actor if we can resolve it
+			FString LevelRefString;
+			In << LevelRefString;
+			FString ActorRefString;
+			In << ActorRefString;
+			
+			if(AssignReferencedActorToProperty(LevelRefString, ActorRefString, WorldReferenceLookups, Level, SoftObjProp, Data))
+			{
+				UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ActorRefString);
+			}
+			else
+			{
+				UE_LOG(LogSpudProps, Warning, TEXT("%s : Unable to re-resolve actor reference '%s'"), *GetLogPrefix(Prop, Depth), *ActorRefString);
+			}
+		}
+
+		return true;
+	}
+
+	const auto WeakObjProp = ExactCastField<FWeakObjectProperty>(Prop);
+	if (WeakObjProp && StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
+		// we ignore array flag since we could be processing inner
+	{
+		uint8 WeakObjectFlag;
+		In << WeakObjectFlag;
+
+		if(WeakObjectFlag == 1)
+		{
+			// NULL it
+			WeakObjProp->SetObjectPropertyValue(Data, nullptr);
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = NULL"), *GetLogPrefix(Prop, Depth));
+		}
+		else if(WeakObjectFlag == 2)
+		{
+			// Set the asset reference string
+			FString AssetPath;
+			In << AssetPath;
+
+			UObject* assetRef = StaticLoadObject(WeakObjProp->PropertyClass, nullptr, *AssetPath);
+			WeakObjProp->SetObjectPropertyValue(Data, assetRef);
+			
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *AssetPath);
+		}
+		else if(WeakObjectFlag == 3)
+		{
+			// Set the actor if we can resolve it
+			FString ActorLevelString;
+			In << ActorLevelString;
+			
+			FString ActorRefString;
+			In << ActorRefString;
+
+			if(AssignReferencedActorToProperty(ActorLevelString, ActorRefString, WorldReferenceLookups, Level, WeakObjProp, Data))
+			{
+				UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ActorRefString);
+			}
+			else
+			{
+				UE_LOG(LogSpudProps, Warning, TEXT("%s : Unable to re-resolve actor reference '%s'"), *GetLogPrefix(Prop, Depth), *ActorRefString);
+			}
+		}
+
+		return true;
+	}
+	
+	return false;
+}
+
+bool SpudPropertyUtil::TryWriteMulticastDelegatePropertyData(FProperty* Property, uint32 PrefixID, const void* Data,
+	bool bIsArrayElement, int Depth, FSpudClassDef& ClassDef, TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
+	const AActor* referencingActor, const FWorldReferenceLookups& WorldReferenceLookups, FSpudClassMetadata& Meta, FArchive& Out)
+{
+	if (const auto MDProp = CastField<FMulticastDelegateProperty>(Property))
+	{
+		if (!bIsArrayElement)
+			RegisterProperty(MDProp, PrefixID, ClassDef, PrefixToPropertyOffsets, Meta, Out);
+
+		FString ScriptDelegateDesc;
+		const FMulticastScriptDelegate* scriptDelegate = MDProp->GetMulticastDelegate(Data);
+		if(scriptDelegate)
+		{
+			// MC delegates are kinda closes but we have this ToString which describes the function name we need to store
+			// in the object, so we use that in corelation with the GetObject
+			ScriptDelegateDesc = scriptDelegate->ToString<UObject>();
+			if(ScriptDelegateDesc != TEXT( "<Unbound>" ))
+			{
+				// Unreachables we will just call NULLs (cannot be saved)
+				TArray< UObject* > BoundObjects = scriptDelegate->GetAllObjectsEvenIfUnreachable();
+
+				TArray<TPair<TPair<FString, FString>, FString>> ObjRefNameToFunction;
+				
+				// Chop off the array brackets
+				FString BindingsDesc = ScriptDelegateDesc.Mid(1, ScriptDelegateDesc.Len() - 2);
+				
+				TCHAR *ContextStr = nullptr;
+				TCHAR *BindingsStr = FCString::Strtok(BindingsDesc.GetCharArray().GetData(), TEXT(","), &ContextStr);
+
+				int32 CurObject = 0;
+				while (BindingsStr && BoundObjects.IsValidIndex(CurObject))
+				{
+					if(BoundObjects[CurObject])
+					{
+						AActor* BoundActor = Cast<AActor>(BoundObjects[CurObject]);
+						if(BoundActor)
+						{
+							FString ObjBindingStr = BindingsStr;
+							ObjBindingStr.TrimStartAndEndInline();
+
+							FString FunctionName;
+							ObjBindingStr.Split(TEXT("."), nullptr, &FunctionName, ESearchCase::IgnoreCase, ESearchDir::FromEnd);
+
+							if(!FunctionName.IsEmpty())
+							{
+								FString LevelString;
+								FString RefString;
+								if(GetActorReferenceString(BoundActor, referencingActor, WorldReferenceLookups, LevelString, RefString))
+								{
+									ObjRefNameToFunction.Emplace(TPair<FString, FString>(LevelString, RefString), FunctionName);
+								}
+								else
+								{
+									UE_LOG(LogSpudProps, Error, TEXT("Multicast Delegate Object reference %s/%s points to runtime Actor %s but that actor has no SpudGuid property, will not be saved."),
+												*ClassDef.ClassName, *MDProp->GetName(), *BoundActor->GetName());
+								}
+							}
+						}
+						else
+						{
+							UE_LOG(LogSpudProps, Verbose, TEXT("Unable to save Multicast Delegate binding to non-actor object %s"), *BoundObjects[CurObject]->GetPathName());
+						}
+					}
+					
+					BindingsStr = FCString::Strtok(nullptr, TEXT(","), &ContextStr);
+					++CurObject;
+				}
+
+				// Now output all of the bindings we should be able to rebind when a restore happens
+				int32 NumBindings = ObjRefNameToFunction.Num();
+				Out << NumBindings;
+
+				for(TPair<TPair<FString, FString>, FString>& bindRef : ObjRefNameToFunction)
+				{
+					Out << bindRef.Key.Key;
+					Out << bindRef.Key.Value;
+					Out << bindRef.Value;
+				}
+			}
+			else
+			{
+				// Nothing is bound, zero :)
+				int32 NumBindings = 0;
+				Out << NumBindings;
+			}
+		}
+		else
+		{
+			int32 NumBindings = 0;
+			Out << NumBindings;
+			ScriptDelegateDesc = TEXT( "<Unbound>" );
+		}
+
+		UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(MDProp, Depth), *ScriptDelegateDesc);
+		return true;
+	}
+	
+	return false;
+}
+
+bool SpudPropertyUtil::TryReadMulticastDelegatePropertyData(FProperty* Prop, void* Data, const FSpudPropertyDef& StoredProperty,
+															const FWorldReferenceLookups& WorldReferenceLookups,
+															ULevel* Level, const FSpudClassMetadata& Meta, int Depth, FArchive& In)
+{
+	if (const auto MDProp = CastField<FMulticastDelegateProperty>(Prop))
+	{
+		FMulticastScriptDelegate ScriptDelegateOut;
+		
+		int32 NumBoundActors;
+		In << NumBoundActors;
+
+		FString actorLevelRefName;
+		FString actorRefName;
+		FString actorFuncName;
+		for(int32 BoundActorIndex = 0; BoundActorIndex < NumBoundActors; ++BoundActorIndex)
+		{
+			In << actorLevelRefName;
+			In << actorRefName;
+			In << actorFuncName;
+
+			AActor* BoundActor = GetReferencedActor(actorLevelRefName, actorRefName, WorldReferenceLookups, Level, MDProp->GetName());
+			if(BoundActor)
+			{
+				TScriptDelegate<FWeakObjectPtr> DelegateIn;
+				DelegateIn.BindUFunction(BoundActor, *actorFuncName);
+				ScriptDelegateOut.Add(DelegateIn);
+			}
+		}
+
+		MDProp->SetMulticastDelegate(Data, ScriptDelegateOut);
+
+		UE_SUPPRESS(LogSpudProps, Verbose, 
+		{
+			const FString ScriptDelegateDesc = ScriptDelegateOut.ToString<UObject>();
+			UE_LOG(LogSpudProps, Verbose, TEXT("%s = %s"), *GetLogPrefix(Prop, Depth), *ScriptDelegateDesc);
+		});
+
+		return true;
+	}
+	
+	return false;
+}
