@@ -96,7 +96,7 @@ void USpudState::StoreLevel(ULevel* Level, bool bRelease, bool bBlocking)
 
 USpudState::StorePropertyVisitor::StorePropertyVisitor(
 	USpudState* Parent,
-	FSpudClassDef& InClassDef, TPrefixedPropertyOffsets& InPrefixToPropertyOffsets,
+	TSharedPtr<FSpudClassDef> InClassDef, TPrefixedPropertyOffsets& InPrefixToPropertyOffsets,
 	FSpudClassMetadata& InMeta, FMemoryWriter& InOut):
 	ParentState(Parent),
 	ClassDef(InClassDef),
@@ -445,7 +445,7 @@ void USpudState::StoreObjectProperties(UObject* Obj, uint32 PrefixID, TPrefixedP
 	FSpudClassMetadata& Meta, FMemoryWriter& Out, int StartDepth)
 {
 	const FString& ClassName = SpudPropertyUtil::GetClassName(Obj);
-	auto& ClassDef = Meta.FindOrAddClassDef(ClassName);
+	auto ClassDef = Meta.FindOrAddClassDef(ClassName);
 
 	// visit all properties and write out
 	StorePropertyVisitor Visitor(this, ClassDef, PrefixToPropertyOffsets, Meta, Out);
@@ -603,7 +603,8 @@ AActor* USpudState::RespawnActor(const FSpudSpawnedActorData& SpawnedActor,
 	// Defer construction so we can send a OnPreRespawn message before construction letting the thing decide
 	// not the do some starting work if being respawned.
 	Params.bDeferConstruction = true;
-	UE_LOG(LogSpudState, Verbose, TEXT(" * Respawning actor %s of type %s"), *SpawnedActor.Guid.ToString(), *ClassName);
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	UE_LOG(LogSpudState, Verbose, TEXT(" * Respawning actor %s of type %s"), *SpawnedActor.Guid.ToString(EGuidFormats::DigitsWithHyphens), *ClassName);
 
 	// Important to spawn using level's world, our GetWorld may not be valid it turns out
 	auto World = Level->GetWorld();
@@ -637,10 +638,9 @@ void USpudState::DestroyActor(const FSpudDestroyedLevelActor& DestroyedActor, UL
 bool USpudState::ShouldRespawnRuntimeActor(const AActor* Actor) const
 {
 	ESpudRespawnMode RespawnMode = ESpudRespawnMode::Default;
-	// I know this cast style only supports C++ not Blueprints, but this method can only be defined in C++ anyway
-	if (auto IObj = Cast<ISpudObject>(Actor))
+	if (Actor->Implements<USpudObject>())
 	{
-		RespawnMode = IObj->GetSpudRespawnMode();
+		RespawnMode = ISpudObject::Execute_GetSpudRespawnMode(Actor);
 	}
 
 	switch (RespawnMode)
@@ -668,6 +668,25 @@ bool USpudState::ShouldActorBeRespawnedOnRestore(AActor* Actor) const
 		ShouldRespawnRuntimeActor(Actor);
 }
 
+bool USpudState::ShouldActorTransformBeRestored(AActor* Actor) const
+{
+	if (Actor->Implements<USpudObject>())
+	{
+		return !ISpudObject::Execute_ShouldSkipRestoreTransform(Actor);
+	}
+	// Assume true
+	return true;
+}
+
+bool USpudState::ShouldActorVelocityBeRestored(AActor* Actor) const
+{
+	if (Actor->Implements<USpudObject>())
+	{
+		return !ISpudObject::Execute_ShouldSkipRestoreVelocity(Actor);
+	}
+	// Assume true
+	return true;
+}
 
 void USpudState::RestoreActor(AActor* Actor, FSpudSaveData::TLevelDataPtr LevelData, const TMap<FGuid, UObject*>* RuntimeObjects)
 {
@@ -680,16 +699,16 @@ void USpudState::RestoreActor(AActor* Actor, FSpudSaveData::TLevelDataPtr LevelD
 	if (bRespawned)
 	{
 		ActorData = GetSpawnedActorData(Actor, LevelData, false);
+		UE_LOG(LogSpudState, Verbose, TEXT(" * RESTORE Runtime Actor: %s"), *Actor->GetName())
 	}
 	else
 	{
 		ActorData = GetLevelActorData(Actor, LevelData, false);
+		UE_LOG(LogSpudState, Verbose, TEXT(" * RESTORE Level Actor: %s"), *Actor->GetName())
 	}
 
 	if (ActorData)
 	{
-		UE_LOG(LogSpudState, Verbose, TEXT(" * RESTORE Level Actor: %s"), *Actor->GetName())
-		
 		PreRestoreObject(Actor, LevelData->GetUserDataModelVersion());
 		
 		RestoreCoreActorData(Actor, ActorData->CoreData);
@@ -783,29 +802,32 @@ void USpudState::RestoreCoreActorData(AActor* Actor, const FSpudCoreActorData& F
 		}
 
 		const auto RootComp = Actor->GetRootComponent();
-		if (RootComp && RootComp->Mobility == EComponentMobility::Movable)
+		if (RootComp && RootComp->Mobility == EComponentMobility::Movable &&
+			ShouldActorTransformBeRestored(Actor))
 		{
 			// Only set the actor transform if movable, to avoid editor warnings about static/stationary objects
 			Actor->SetActorTransform(XForm, false, nullptr, ETeleportType::ResetPhysics);
-			
-			if (Velocity.SizeSquared() > FLT_EPSILON || AngularVelocity.SizeSquared() > FLT_EPSILON)
-			{
-				const auto PrimComp = Cast<UPrimitiveComponent>(RootComp);
 
-				// note: DO NOT use IsSimulatingPhysics() since that's dependent on BodyInstance.BodySetup being valid, which
-				// it might not be at setup. We only want the *intention* to simulate physics, not whether it's currently happening
-				if (PrimComp && PrimComp->BodyInstance.bSimulatePhysics)
+			if (ShouldActorVelocityBeRestored(Actor))
+			{
+				if (Velocity.SizeSquared() > FLT_EPSILON || AngularVelocity.SizeSquared() > FLT_EPSILON)
 				{
-					PrimComp->SetAllPhysicsLinearVelocity(Velocity);
-					PrimComp->SetAllPhysicsAngularVelocityInDegrees(AngularVelocity);
-				}
-				else if (const auto	MoveComponent = Cast<UMovementComponent>(Actor->FindComponentByClass(UMovementComponent::StaticClass())))
-				{
-					MoveComponent->Velocity = Velocity;
+					const auto PrimComp = Cast<UPrimitiveComponent>(RootComp);
+
+					// note: DO NOT use IsSimulatingPhysics() since that's dependent on BodyInstance.BodySetup being valid, which
+					// it might not be at setup. We only want the *intention* to simulate physics, not whether it's currently happening
+					if (PrimComp && PrimComp->BodyInstance.bSimulatePhysics)
+					{
+						PrimComp->SetAllPhysicsLinearVelocity(Velocity);
+						PrimComp->SetAllPhysicsAngularVelocityInDegrees(AngularVelocity);
+					}
+					else if (const auto	MoveComponent = Cast<UMovementComponent>(Actor->FindComponentByClass(UMovementComponent::StaticClass())))
+					{
+						MoveComponent->Velocity = Velocity;
+					}
 				}
 			}
 		}
-
 
 		if (Pawn)
 		{
@@ -839,7 +861,7 @@ void USpudState::RestoreObjectProperties(UObject* Obj, FMemoryReader& In, uint32
 	const auto ClassDef = Meta.GetClassDef(ClassName);
 	if (!ClassDef)
 	{
-		UE_LOG(LogSpudState, Error, TEXT("Unable to find ClassDef for: %s %s"), *SpudPropertyUtil::GetClassName(Obj));
+		UE_LOG(LogSpudState, Error, TEXT("Unable to find ClassDef for: %s"), *SpudPropertyUtil::GetClassName(Obj));
 		return;
 	}
 
@@ -868,7 +890,7 @@ void USpudState::RestoreObjectPropertiesFast(UObject* Obj, FMemoryReader& In,
 											 uint32 PrefixID, 
 											 const TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                                              const FSpudClassMetadata& Meta,
-                                             const FSpudClassDef* ClassDef,
+                                             TSharedPtr<const FSpudClassDef> ClassDef,
                                              const TMap<FGuid, UObject*>* RuntimeObjects,
                                              int StartDepth)
 {
@@ -884,7 +906,7 @@ void USpudState::RestoreObjectPropertiesSlow(UObject* Obj, FMemoryReader& In,
 													   uint32 PrefixID,
 													   const TPrefixedPropertyOffsets& PrefixToPropertyOffsets,
                                                        const FSpudClassMetadata& Meta,
-                                                       const FSpudClassDef* ClassDef,
+                                                       TSharedPtr<const FSpudClassDef> ClassDef,
                                                        const TMap<FGuid, UObject*>* RuntimeObjects,
                                                        int StartDepth)
 {
@@ -972,31 +994,31 @@ bool USpudState::RestoreSlowPropertyVisitor::VisitProperty(UObject* RootObject, 
 		return true;
 	
 	// PropertyLookup is PrefixID -> Map of PropertyNameID to PropertyIndex
-	auto InnerMapPtr = ClassDef.PropertyLookup.Find(CurrentPrefixID);
+	auto InnerMapPtr = ClassDef->PropertyLookup.Find(CurrentPrefixID);
 	if (!InnerMapPtr)
 	{
-		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, PrefixID invalid for %, class %s"), *Property->GetName(), *ClassDef.ClassName);
+		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, PrefixID invalid for %, class %s"), *Property->GetName(), *ClassDef->ClassName);
 		return true;
 	}
 	
 	uint32 PropID = Meta.GetPropertyIDFromName(Property->GetName());
 	if (PropID == SPUDDATA_INDEX_NONE)
 	{
-		UE_LOG(LogSpudState, Log, TEXT("Skipping property %s on class %s, not found in class definition"), *Property->GetName(), *ClassDef.ClassName);
+		UE_LOG(LogSpudState, Log, TEXT("Skipping property %s on class %s, not found in class definition"), *Property->GetName(), *ClassDef->ClassName);
 		return true;
 	}
 	const int* PropertyIndexPtr = InnerMapPtr->Find(PropID);
 	if (!PropertyIndexPtr)
 	{
-		UE_LOG(LogSpudState, Log, TEXT("Skipping property %s on class %s, data not found"), *Property->GetName(), *ClassDef.ClassName);
+		UE_LOG(LogSpudState, Log, TEXT("Skipping property %s on class %s, data not found"), *Property->GetName(), *ClassDef->ClassName);
 		return true;		
 	}
-	if (*PropertyIndexPtr < 0 || *PropertyIndexPtr >= ClassDef.Properties.Num())
+	if (*PropertyIndexPtr < 0 || *PropertyIndexPtr >= ClassDef->Properties.Num())
 	{
-		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, invalid property index for %s on class %s"), *Property->GetName(), *ClassDef.ClassName);
+		UE_LOG(LogSpudState, Error, TEXT("Error in RestoreSlowPropertyVisitor, invalid property index for %s on class %s"), *Property->GetName(), *ClassDef->ClassName);
 		return true;		
 	}
-	auto& StoredProperty = ClassDef.Properties[*PropertyIndexPtr];
+	auto& StoredProperty = ClassDef->Properties[*PropertyIndexPtr];
 
 	// Seek to the property data
 	const TMap<int, uint32>* PropertyOffsets = PrefixToPropertyOffsets.Find(CurrentPrefixID);
@@ -1304,6 +1326,156 @@ bool USpudState::LoadSaveInfoFromArchive(FArchive& SPUDAr, USpudSaveGameInfo& Ou
 		OutInfo.CustomInfo->SetData(StorageInfo.CustomInfo);
 	}
 	return Ok;
+	
+}
+
+void USpudStateCustomData::BeginWriteChunk(FString MagicID)
+{
+	auto MagicChar = StringCast<ANSICHAR>(*MagicID);
+
+	if (MagicChar.Length() > 4)
+	{
+		UE_LOG(LogSpudData, Error, TEXT("Chunk ID %s is more than 4 characters long, will be truncated"), *MagicID);
+	}
+
+	const TSharedPtr<FSpudAdhocWrapperChunk> Chunk = MakeShareable<FSpudAdhocWrapperChunk>(new FSpudAdhocWrapperChunk(MagicChar.Get()));
+	ChunkStack.Push(Chunk);
+
+	Chunk->ChunkStart(*GetUnderlyingArchive());
+}
+
+void USpudStateCustomData::EndWriteChunk(FString MagicID)
+{
+	const auto CharStr = StringCast<ANSICHAR>(*MagicID);
+	
+	if (CharStr.Length() > 4)
+	{
+		UE_LOG(LogSpudData, Error, TEXT("Chunk ID %s is more than 4 characters long, truncating"), *MagicID);
+	}
+
+	if (ChunkStack.Num() == 0)
+	{
+		UE_LOG(LogSpudData, Error, TEXT("Cannot end chunk with ID %s, no chunks left to end"), *MagicID);
+		return;	
+	}
+
+	if (strncmp(ChunkStack.Top()->Magic, CharStr.Get(), 4) != 0)
+	{
+		UE_LOG(LogSpudData, Fatal,
+		       TEXT("Cannot call EndWriteChunk with ID %s because the last BeginWriteChunk was called with ID %s"),
+		       *MagicID,
+		       ChunkStack.Top()->Magic);
+		return;
+	}
+
+	const TSharedPtr<FSpudAdhocWrapperChunk> Chunk = ChunkStack.Pop();
+	Chunk->ChunkEnd(*GetUnderlyingArchive());
+	
+}
+
+bool USpudStateCustomData::BeginReadChunk(FString MagicID)
+{
+	const auto MagicChar = StringCast<ANSICHAR>(*MagicID);
+
+	if (MagicChar.Length() > 4)
+	{
+		UE_LOG(LogSpudData, Error, TEXT("Chunk ID %s is more than 4 characters long, will be truncated"), *MagicID);
+	}
+
+	const TSharedPtr<FSpudAdhocWrapperChunk> Chunk = MakeShareable<FSpudAdhocWrapperChunk>(new FSpudAdhocWrapperChunk(MagicChar.Get()));
+	const bool bOK = Chunk->ChunkStart(*GetUnderlyingArchive());
+	if (bOK)
+	{
+		ChunkStack.Push(Chunk);
+	}
+	return bOK;
+}
+
+void USpudStateCustomData::EndReadChunk(FString MagicID)
+{
+	const auto CharStr = StringCast<ANSICHAR>(*MagicID);
+	
+	if (CharStr.Length() > 4)
+	{
+		UE_LOG(LogSpudData, Error, TEXT("Chunk ID %s is more than 4 characters long, truncating"), *MagicID);
+	}
+
+	if (ChunkStack.Num() == 0)
+	{
+		UE_LOG(LogSpudData, Error, TEXT("Cannot end chunk with ID %s, no chunks left to end"), *MagicID);
+		return;	
+	}
+
+	if (strncmp(ChunkStack.Top()->Magic, CharStr.Get(), 4) != 0)
+	{
+		UE_LOG(LogSpudData, Fatal,
+			   TEXT("Cannot call EndReadChunk with ID %s because the last BeginWriteChunk was called with ID %s"),
+			   *MagicID,
+			   ChunkStack.Top()->Magic);
+		return;
+	}
+
+	const TSharedPtr<FSpudAdhocWrapperChunk> Chunk = ChunkStack.Pop();
+	Chunk->ChunkEnd(*GetUnderlyingArchive());
+	
+}
+
+bool USpudStateCustomData::PeekChunk(FString& OutMagicID)
+{
+	FSpudChunkedDataArchive Ar(*GetUnderlyingArchive());
+	FSpudChunkHeader Header;
+	if (Ar.PreviewNextChunk(Header))
+	{
+		OutMagicID = FSpudChunkHeader::MagicToString(Header.MagicFriendly);
+		return true;
+	}
+
+	return false;
+}
+
+bool USpudStateCustomData::SkipChunk(FString MagicID)
+{
+	const auto CharStr = StringCast<ANSICHAR>(*MagicID);
+	
+	if (CharStr.Length() > 4)
+	{
+		UE_LOG(LogSpudData, Error, TEXT("Chunk ID %s is more than 4 characters long, truncating"), *MagicID);
+	}
+	
+	FSpudChunkedDataArchive Ar(*GetUnderlyingArchive());
+	FSpudChunkHeader Header;
+	if (Ar.PreviewNextChunk(Header, true))
+	{
+		if (strncmp(Header.MagicFriendly, CharStr.Get(), 4) == 0)
+		{
+			Ar.SkipNextChunk();
+			return true;
+		}
+	}
+
+	return false;
+
+}
+
+bool USpudStateCustomData::IsStillInChunk(FString MagicID) const
+{
+	if (ChunkStack.Num() == 0)
+	{
+		return false;	
+	}
+	
+	const auto CharStr = StringCast<ANSICHAR>(*MagicID);
+	
+	if (CharStr.Length() > 4)
+	{
+		UE_LOG(LogSpudData, Error, TEXT("Chunk ID %s is more than 4 characters long, truncating"), *MagicID);
+	}
+	if (strncmp(ChunkStack.Top()->Magic, CharStr.Get(), 4) != 0)
+	{
+		return false;
+	}
+
+	return ChunkStack.Top()->IsStillInChunk(*GetUnderlyingArchive());
 	
 }
 

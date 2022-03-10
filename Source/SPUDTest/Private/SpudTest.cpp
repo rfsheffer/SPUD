@@ -25,6 +25,7 @@ void PopulateAllTypes(T& Obj)
 	Obj.TransformVal.SetComponents(Obj.RotatorVal.Quaternion(), Obj.VectorVal, FVector(1, 2, 1));
 	Obj.NameVal = FName("SpudNameTest");
 	Obj.StringVal = "A string test for SPUD";
+	Obj.TextVal = FText::FromString("SpudTextTest");
 	Obj.UObjectVal = NewObject<UTestNestedUObject>();
 	Obj.UObjectVal->NestedIntVal = 96;
 	Obj.UObjectVal->NestedStringVal = "A string inside a nested UObject";
@@ -88,7 +89,8 @@ void PopulateAllTypes(T& Obj)
 	Obj.StringArray.Add("I know, right?");
 	Obj.StringArray.Add("Still, we're almost there now chuck");
 	Obj.StringArray.Add("Yeah, best crack on eh?");	
-	
+	Obj.TextArray.Add(FText::FromString("TextOne"));
+	Obj.TextArray.Add(FText::FromString("TextTwo"));
 }
 
 template<typename T>
@@ -133,6 +135,7 @@ void CheckAllTypes(FAutomationTestBase* Test, const FString& Prefix, const T& Ac
 	Test->TestTrue(Prefix + "TransformVal should match", Actual.TransformVal.Equals(Expected.TransformVal));
 	Test->TestEqual(Prefix + "NameVal should match", Actual.NameVal, Expected.NameVal);
 	Test->TestEqual(Prefix + "StringVal should match", Actual.StringVal, Expected.StringVal);
+	Test->TestEqual(Prefix + "TextVal should match", Actual.TextVal.ToString(), Expected.TextVal.ToString());
 
 	Test->TestNotNull(Prefix + "UObject shouldn't be null", Actual.UObjectVal);
 	if (Actual.UObjectVal)
@@ -166,6 +169,8 @@ void CheckAllTypes(FAutomationTestBase* Test, const FString& Prefix, const T& Ac
 	CheckArrayExplicitEquals(Test, Prefix + "TransformArray|", Actual.TransformArray, Expected.TransformArray);
 	CheckArray(Test, Prefix + "NameArray|", Actual.NameArray, Expected.NameArray);
 	CheckArray(Test, Prefix + "StringArray|", Actual.StringArray, Expected.StringArray);
+	Test->TestEqual(Prefix + "TextArray 0 should match", Actual.TextArray[0].ToString(), Expected.TextArray[0].ToString());
+	Test->TestEqual(Prefix + "TextArray 1 should match", Actual.TextArray[1].ToString(), Expected.TextArray[1].ToString());
 
 }
 
@@ -260,6 +265,74 @@ bool FTestStructs::RunTest(const FString& Parameters)
 
 	CheckAllTypes(this, "SimpleStruct|", LoadedObj->SimpleStruct, SavedObj->SimpleStruct);
 	CheckAllTypes(this, "NestedStruct|", LoadedObj->NestedStruct.Nested, SavedObj->NestedStruct.Nested);
+
+	return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FTestCustomData, "SPUDTest.CustomData",
+								 EAutomationTestFlags::EditorContext |
+								 EAutomationTestFlags::ClientContext |
+								 EAutomationTestFlags::ProductFilter)
+
+bool FTestCustomData::RunTest(const FString& Parameters)
+{
+	auto SavedObj = NewObject<UTestSaveObjectCustomData>();
+
+
+	SavedObj->bSomeBoolean = true;
+	SavedObj->SomeInteger = 203001;
+	SavedObj->SomeString = "Hello from custom data";
+	SavedObj->SomeFloat = 1.3245978893;
+
+	auto State = NewObject<USpudState>();
+	State->StoreGlobalObject(SavedObj, "TestObject");
+
+	auto LoadedObj = NewObject<UTestSaveObjectCustomData>();
+	State->RestoreGlobalObject(LoadedObj, "TestObject");
+
+	TestEqual("CustomData|Bool should match", LoadedObj->bSomeBoolean, SavedObj->bSomeBoolean);
+	TestEqual("CustomData|Int should match", LoadedObj->SomeInteger, SavedObj->SomeInteger);
+	TestEqual("CustomData|String should match", LoadedObj->SomeString, SavedObj->SomeString);
+	TestEqual("CustomData|Float should match", LoadedObj->SomeFloat, SavedObj->SomeFloat);
+
+	TestTrue("CustomData|Peek 1 should have worked", LoadedObj->Peek1Succeeded);
+	TestTrue("CustomData|Peek 1 chunk ID should match", LoadedObj->Peek1IDOK);
+	TestTrue("CustomData|Peek 2 should have worked", LoadedObj->Peek2Succeeded);
+	TestTrue("CustomData|Peek 2 chunk ID should match", LoadedObj->Peek2IDOK);
+	TestTrue("CustomData|Skip 1 should have worked", LoadedObj->Skip1Succeeded);
+	TestTrue("CustomData|Skip 1 data position should match", LoadedObj->Skip1PosOK);
+	TestTrue("CustomData|Skip 2 should have worked", LoadedObj->Skip2Succeeded);
+	TestTrue("CustomData|Skip 2 data position should match", LoadedObj->Skip2PosOK);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FTestNestedObject, "SPUDTest.NestedObject",
+	EAutomationTestFlags::EditorContext |
+	EAutomationTestFlags::ClientContext |
+	EAutomationTestFlags::ProductFilter)
+
+bool FTestNestedObject::RunTest(const FString& Parameters)
+{
+	auto SavedObj = NewObject<UTestSaveObjectParent>();
+	SavedObj->UObjectVal1 = NewObject<UTestNestedChild1>();
+	SavedObj->UObjectVal2 = NewObject<UTestNestedChild2>();
+	SavedObj->UObjectVal3 = NewObject<UTestNestedChild3>();
+	SavedObj->UObjectVal4 = NewObject<UTestNestedChild4>();
+	SavedObj->UObjectVal5 = NewObject<UTestNestedChild5>();
+
+	auto State = NewObject<USpudState>();
+	State->StoreGlobalObject(SavedObj, "TestObject");
+
+	auto LoadedObj = NewObject<UTestSaveObjectParent>();
+	State->RestoreGlobalObject(LoadedObj, "TestObject");
+
+	TestNotNull("UObject1 shouldn't be null", LoadedObj->UObjectVal1);
+	TestNotNull("UObject2 shouldn't be null", LoadedObj->UObjectVal2);
+	TestNotNull("UObject3 shouldn't be null", LoadedObj->UObjectVal3);
+	TestNotNull("UObject4 shouldn't be null", LoadedObj->UObjectVal4);
+	TestNotNull("UObject5 shouldn't be null", LoadedObj->UObjectVal5);
 
 	return true;
 }

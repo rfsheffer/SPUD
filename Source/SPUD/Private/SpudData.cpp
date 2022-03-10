@@ -58,6 +58,8 @@ void FSpudChunkedDataArchive::SkipNextChunk()
 	}
 
 	FSpudChunkHeader Header;
+	const int64 StartPos = Tell();
+
 	if (PreviewNextChunk(Header, false))
 	{
 		// Length is after header so we can just seek from here
@@ -65,6 +67,7 @@ void FSpudChunkedDataArchive::SkipNextChunk()
 	}
 	else
 	{
+		Seek(StartPos);
 		UE_LOG(LogSpudData, Fatal, TEXT("Unable to preview next chunk to skip"))
 		return;
 	}
@@ -472,7 +475,7 @@ bool FSpudNamedObjectMap::RenameObject(const FString& OldName, const FString& Ne
 void FSpudDestroyedActorArray::Add(const FString& Name)
 {
 
-	Values.Add(FSpudDestroyedLevelActor(Name));
+	Values.Add(MakeShareable(new FSpudDestroyedLevelActor(Name)));
 	
 }
 //------------------------------------------------------------------------------
@@ -519,25 +522,31 @@ void FSpudClassMetadata::ReadFromArchive(FSpudChunkedDataArchive& Ar, uint32 Sto
 	}
 }
 
-FSpudClassDef& FSpudClassMetadata::FindOrAddClassDef(const FString& ClassName)
+TSharedPtr<FSpudClassDef> FSpudClassMetadata::FindOrAddClassDef(const FString& ClassName)
 {
 	// This adds new entries
 	int Index = ClassNameIndex.FindOrAddIndex(ClassName);
 	if (ClassDefinitions.Values.Num() < Index + 1)
 	{
+		// Create new entries
+		int OldNum = ClassDefinitions.Values.Num();
 		ClassDefinitions.Values.SetNum(Index + 1);
-		auto& Def = ClassDefinitions.Values[Index];
-		Def.ClassName = ClassName;
+		for (int i = OldNum; i < Index + 1; ++i)
+		{
+			ClassDefinitions.Values[i] = MakeShareable(new FSpudClassDef());
+		}
+		// Set ClassName to correct one
+		ClassDefinitions.Values[Index]->ClassName = ClassName;
 	}
 	return ClassDefinitions.Values[Index];
-	
 }
-const FSpudClassDef* FSpudClassMetadata::GetClassDef(const FString& ClassName) const
+
+TSharedPtr<const FSpudClassDef> FSpudClassMetadata::GetClassDef(const FString& ClassName) const
 {
 	int Index = ClassNameIndex.GetIndex(ClassName);
 	if (Index != SPUDDATA_INDEX_NONE)
 	{
-		return &ClassDefinitions.Values[Index];
+		return ClassDefinitions.Values[Index];
 	}
 	return nullptr;
 }
@@ -610,8 +619,8 @@ bool FSpudClassMetadata::RenameClass(const FString& OldClassName, const FString&
 	uint32 Index = ClassNameIndex.Rename(OldClassName, NewClassName);
 	if (Index != SPUDDATA_INDEX_NONE)
 	{
-		auto& ClassDef = ClassDefinitions.Values[Index];
-		ClassDef.ClassName = NewClassName;
+		auto ClassDef = ClassDefinitions.Values[Index];
+		ClassDef->ClassName = NewClassName;
 		return true;
 	}
 	return false;
@@ -627,14 +636,14 @@ bool FSpudClassMetadata::RenameProperty(const FString& ClassName, const FString&
 		// This may orphan the old name ID but that doesn't hurt anyone except consuming a few bytes
 
 		// Now point our property for that class at new name. Everything else remains the same
-		auto& Def = ClassDefinitions.Values[*pClassID];
+		auto Def = ClassDefinitions.Values[*pClassID];
 	
 		uint32 OldNameID = GetPropertyIDFromName(OldName);
 		uint32 NewNameID = FindOrAddPropertyIDFromName(NewName);
 		uint32 OldPrefixID = GetPrefixID(OldPrefix);
 		uint32 NewPrefixID = FindOrAddPrefixID(NewPrefix);
 
-		return Def.RenameProperty(OldNameID, OldPrefixID, NewNameID, NewPrefixID);
+		return Def->RenameProperty(OldNameID, OldPrefixID, NewNameID, NewPrefixID);
 	}
 
 	return false;
@@ -1291,7 +1300,7 @@ bool FSpudSaveData::WriteAndReleaseLevelData(const FString& LevelName, const FSt
 		if (LevelData->Status == LDS_Loaded ||
 			// If we've queued a background write & unload but this is now requesting a blocking write, we
 			// should upgrade it and do it NOW. When the status is changed to LDS_Unloaded the background worker will ignore it
-			LevelData->Status == LDS_BackgroundWriteAndUnload && bBlocking)
+			(LevelData->Status == LDS_BackgroundWriteAndUnload && bBlocking))
 		{
 			if (bBlocking)
 			{

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ISpudObject.h"
 #include "UObject/Object.h"
 #include "TestSaveObject.generated.h"
 
@@ -77,6 +78,8 @@ public:
 	FName NameVal;
 	UPROPERTY(SaveGame)
 	FString StringVal;
+	UPROPERTY(SaveGame)
+	FText TextVal;
 
 	UPROPERTY(SaveGame)
 	UTestNestedUObject* UObjectVal = nullptr;
@@ -123,6 +126,8 @@ public:
 	TArray<FName> NameArray;
 	UPROPERTY(SaveGame)
 	TArray<FString> StringArray;
+	UPROPERTY(SaveGame)
+	TArray<FText> TextArray;
 
 	// Arrays of custom structs or UObjects are not supported yet
 };
@@ -188,6 +193,8 @@ public:
 	FName NameVal;
 	UPROPERTY(SaveGame)
 	FString StringVal;
+	UPROPERTY(SaveGame)
+	FText TextVal;
 
 	UPROPERTY(SaveGame)
 	UTestNestedUObject* UObjectVal;
@@ -235,6 +242,8 @@ public:
 	TArray<FName> NameArray;
 	UPROPERTY(SaveGame)
 	TArray<FString> StringArray;
+	UPROPERTY(SaveGame)
+	TArray<FText> TextArray;
 };
 
 
@@ -249,4 +258,100 @@ public:
 	UPROPERTY(SaveGame)
 	FTestNestedStruct NestedStruct;	
 
+};
+
+UCLASS()
+class SPUDTEST_API UTestSaveObjectCustomData : public UObject, public ISpudObjectCallback
+{
+	GENERATED_BODY()
+public:
+
+	bool bSomeBoolean;
+	int SomeInteger;
+	FString SomeString;
+	float SomeFloat;
+
+	// just for test read
+	bool Peek1Succeeded;
+	bool Peek1IDOK;
+	bool Peek2Succeeded;
+	bool Peek2IDOK;
+	bool Skip1Succeeded;
+	bool Skip1PosOK;
+	bool Skip2Succeeded;
+	bool Skip2PosOK;
+	
+	static const FString TestChunkID1;
+	static const FString TestChunkID2;
+	
+	virtual void SpudStoreCustomData_Implementation(const USpudState* State, USpudStateCustomData* CustomData) override;
+	virtual void SpudRestoreCustomData_Implementation(USpudState* State, USpudStateCustomData* CustomData) override;
+};
+
+
+/// Simple children UObjects and parent
+UCLASS()
+class SPUDTEST_API UTestNestedChild1 : public UObject
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(SaveGame)
+	FString NestedStringVal1;
+};
+
+UCLASS()
+class SPUDTEST_API UTestNestedChild2 : public UObject
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(SaveGame)
+	FString NestedStringVal2;
+};
+
+UCLASS()
+class SPUDTEST_API UTestNestedChild3 : public UObject
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(SaveGame)
+	FString NestedStringVal3;
+};
+
+UCLASS()
+class SPUDTEST_API UTestNestedChild4 : public UObject
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(SaveGame)
+	FString NestedStringVal4;
+};
+
+UCLASS()
+class SPUDTEST_API UTestNestedChild5 : public UObject
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(SaveGame)
+	FString NestedStringVal5;
+};
+
+UCLASS()
+class SPUDTEST_API UTestSaveObjectParent : public UObject
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(SaveGame)
+	UTestNestedChild1* UObjectVal1;
+
+	UPROPERTY(SaveGame)
+	UTestNestedChild2* UObjectVal2;
+
+	UPROPERTY(SaveGame)
+	UTestNestedChild3* UObjectVal3;
+
+	UPROPERTY(SaveGame)
+	UTestNestedChild4* UObjectVal4;
+
+	UPROPERTY(SaveGame)
+	UTestNestedChild5* UObjectVal5;
 };

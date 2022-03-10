@@ -122,7 +122,7 @@ struct SPUD_API FSpudChunkHeader
 
 	static uint32 EncodeMagic(const char* InMagic)
 	{
-		check(strlen(InMagic) == 4)
+		check(strlen(InMagic) >= 4)
         return InMagic[0] +
             (InMagic[1] << 8) +
             (InMagic[2] << 16) +
@@ -202,9 +202,16 @@ struct SPUD_API FSpudChunk
 // An ad-hoc chunk used to wrap other chunks. 
 struct SPUD_API FSpudAdhocWrapperChunk : public FSpudChunk
 {
-	const char* Magic;
+	char Magic[5];
 	
-	FSpudAdhocWrapperChunk(const char* InMagic) : Magic(InMagic) {}
+	FSpudAdhocWrapperChunk(const char* InMagic)
+	{
+		// Copy magic data so that we're not storing an external pointer
+		// memcpy since strncpy_s doesn't null-terminate at lower counts anyway, just check it's long enough
+		checkf(strlen(InMagic) >= 4, TEXT("FSpudAdhocWrapperChunk: Magic must be 4 characters"));
+		memcpy(Magic, InMagic, 4);
+		Magic[4] = '\0';
+	}
 	virtual const char* GetMagic() const override { return Magic; }
 	// You should not call read/write, this chunk is solely for wrapping others without owning them
 	virtual void WriteToArchive(FSpudChunkedDataArchive& Ar) override { check(false);}
@@ -445,7 +452,7 @@ struct FSpudStructMapData : public FSpudChunk
 template <typename T>
 struct FSpudArray : public FSpudChunk
 {
-	TArray<T> Values;
+	TArray<TSharedPtr<T>> Values;
 
 	virtual const char* GetChildMagic() const = 0;
 
@@ -456,7 +463,7 @@ struct FSpudArray : public FSpudChunk
 			// Just write values, those will write chunks
 			for (auto && Item : Values)
 			{
-				Item.WriteToArchive(Ar);
+				Item->WriteToArchive(Ar);
 			}
 			ChunkEnd(Ar);
 		}
@@ -466,16 +473,16 @@ struct FSpudArray : public FSpudChunk
 	{
 		if (ChunkStart(Ar))
 		{
-			Values.Empty();
+			Reset();
 
 			// Detect chunks & only load compatible
 			const uint32 ChildMagicID = FSpudChunkHeader::EncodeMagic(GetChildMagic());
-			T ChildData;
 			while (IsStillInChunk(Ar))
 			{
 				if (Ar.NextChunkIs(ChildMagicID))
 				{
-					ChildData.ReadFromArchive(Ar, StoredSystemVersion);
+					TSharedPtr<T> ChildData = MakeShareable(new T);
+					ChildData->ReadFromArchive(Ar, StoredSystemVersion);
 					Values.Add(ChildData);						
 				}
 				else
@@ -648,9 +655,9 @@ struct SPUD_API FSpudClassMetadata : public FSpudChunk
 	virtual void WriteToArchive(FSpudChunkedDataArchive& Ar) override;
 	virtual void ReadFromArchive(FSpudChunkedDataArchive& Ar, uint32 StoredSystemVersion) override;
 
-	
-	FSpudClassDef& FindOrAddClassDef(const FString& ClassName);
-	const FSpudClassDef* GetClassDef(const FString& ClassName) const;
+
+	TSharedPtr<FSpudClassDef> FindOrAddClassDef(const FString& ClassName);
+	TSharedPtr<const FSpudClassDef> GetClassDef(const FString& ClassName) const;
 	const FString& GetPropertyNameFromID(uint32 ID) const;
 	uint32 FindOrAddPropertyIDFromName(const FString& Name);
 	uint32 GetPropertyIDFromName(const FString& Name) const;
