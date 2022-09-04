@@ -1481,7 +1481,12 @@ bool USpudStateCustomData::IsStillInChunk(FString MagicID) const
 
 FString USpudState::GetActiveGameLevelFolder()
 {
-	return FString::Printf(TEXT("%sSpudCache/"), *FPaths::ProjectSavedDir());	
+#if PLATFORM_ANDROID
+	extern FString GInternalFilePath;
+	return FString::Printf(TEXT("%s/"), *FPaths::Combine(GInternalFilePath, TEXT("SpudCache")));
+#else
+	return FString::Printf(TEXT("%sSpudCache/"), *FPaths::ProjectSavedDir());
+#endif
 }
 
 void USpudState::RemoveAllActiveGameLevelFiles()

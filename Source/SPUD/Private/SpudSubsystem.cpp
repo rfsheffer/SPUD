@@ -1020,11 +1020,20 @@ USpudSaveGameInfo* USpudSubsystem::GetAutoSaveGame(const bool complainNotFound)
 
 FString USpudSubsystem::GetSaveGameDirectory() const
 {
+#if PLATFORM_ANDROID
+	extern FString GInternalFilePath;
+	if(!UserNameFolderName.IsEmpty())
+	{
+		return FString::Printf(TEXT("%s/%s/"), *FPaths::Combine(GInternalFilePath, TEXT("SaveGames")), *UserNameFolderName);
+	}
+	return FString::Printf(TEXT("%s/"), *FPaths::Combine(GInternalFilePath, TEXT("SaveGames")));
+#else
 	if(!UserNameFolderName.IsEmpty())
 	{
 		return FString::Printf(TEXT("%sSaveGames/%s/"), *FPaths::ProjectSavedDir(), *UserNameFolderName);
 	}
 	return FString::Printf(TEXT("%sSaveGames/"), *FPaths::ProjectSavedDir());
+#endif
 }
 
 FString USpudSubsystem::GetSaveGameFilePath(const FString& SlotName) const
@@ -1041,7 +1050,12 @@ void USpudSubsystem::ListSaveGameFiles(TArray<FString>& OutSaveFileList) const
 
 FString USpudSubsystem::GetActiveGameFolder()
 {
+#if PLATFORM_ANDROID
+	extern FString GInternalFilePath;
+	return FString::Printf(TEXT("%s/"), *FPaths::Combine(GInternalFilePath, TEXT("CurrentGame")));
+#else
 	return FString::Printf(TEXT("%sCurrentGame/"), *FPaths::ProjectSavedDir());
+#endif
 }
 
 FString USpudSubsystem::GetActiveGameFilePath(const FString& Name)
