@@ -100,6 +100,36 @@ void USpudSubsystem::QuickSaveGame(FText Title, bool bTakeScreenshot, const USpu
 		ExtraInfo);
 }
 
+void USpudSubsystem::CopySaveGame(const FString& PrevSlotName, const FString& NewSlotName, const bool AsAutoSave, const FText& Title, const USpudCustomSaveInfo* ExtraInfo)
+{
+	const FString prevSlotFilePath = GetSaveGameFilePath(PrevSlotName);
+	if(!FPaths::FileExists(prevSlotFilePath))
+	{
+		UE_LOG(LogSpudSubsystem, Error, TEXT("Cannot copy a save game which doesn't exist!"));	
+		return;
+	}
+
+	IPlatformFile& platformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+	const FString newSlotFilePath = AsAutoSave ? GetSaveGameFilePath(SPUD_AUTOSAVE_SLOTNAME) : GetSaveGameFilePath(NewSlotName);
+	if(FPaths::FileExists(newSlotFilePath))
+	{
+		if(!platformFile.DeleteFile(*newSlotFilePath))
+		{
+			UE_LOG(LogSpudSubsystem, Error, TEXT("Cannot delete the previous save file '%s' to copy a save game to!"), *newSlotFilePath);	
+			return;
+		}
+	}
+
+	if(!platformFile.CopyFile(*newSlotFilePath, *prevSlotFilePath))
+	{
+		UE_LOG(LogSpudSubsystem, Error, TEXT("Unable to copy save game '%s' to '%s'"), *prevSlotFilePath, *newSlotFilePath);	
+		return;
+	}
+	
+	UpdateSaveGameInfo(AsAutoSave ? SPUD_AUTOSAVE_SLOTNAME : NewSlotName, Title, TArray<uint8>(), ExtraInfo);
+}
+
 void USpudSubsystem::QuickLoadGame()
 {
 	LoadGame(SPUD_QUICKSAVE_SLOTNAME);
@@ -1198,8 +1228,6 @@ USpudCustomSaveInfo* USpudSubsystem::CreateCustomSaveInfo()
 {
 	return NewObject<USpudCustomSaveInfo>();
 }
-
-
 
 // FTickableGameObject begin
 

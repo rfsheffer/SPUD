@@ -292,6 +292,17 @@ public:
 	USpudCustomSaveInfo* CreateCustomSaveInfo();
 
 	/**
+	 * @brief Copy a current save game to another slot or auto save slot
+	 * @param PrevSlotName The slot to copy
+	 * @param NewSlotName The new slot to copy to (and delete the save located there if there is one)
+	 * @param AsAutoSave If true ignore NewSlotName and use the auto save slot
+	 * @param Title The new title to assign
+	 * @param ExtraInfo The new extra info to assign
+	 */
+	 UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly)
+	void CopySaveGame(const FString& PrevSlotName, const FString& NewSlotName, const bool AsAutoSave, const FText& Title = FText(), const USpudCustomSaveInfo* ExtraInfo = nullptr);
+
+	/**
 	 * Save a game. Asynchronous, use the PostSaveGame event to determine when the save is finished.
 	 * @param SlotName The name of the slot for this save
 	 * @param Title A descriptive title to go with the save
