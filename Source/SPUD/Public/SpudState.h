@@ -604,6 +604,25 @@ public:
 	UFUNCTION(BlueprintCallable)
     bool ReadByte(uint8& OutByte) { return Read(OutByte); }
 
+	/**
+	 * Write an actor reference
+	 * @param actorToSaveReference The actor reference to save.
+	 * @param referencingActor The actor saving the reference. This is important for knowing how this actor can reference the actor to save reference.
+	 *						   In blueprint this is almost always "Self" so just put that in.
+	 * @param state The save sate, needed to grab some extra information to save this reference.
+	 */
+	UFUNCTION(BlueprintCallable, meta = (HidePin = "referencingActor", DefaultToSelf = "referencingActor"))
+	void WriteActorReference(class AActor* actorToSaveReference, const USpudState* state, AActor* referencingActor);
+
+	/**
+	 * Read an actor reference
+	 * @param referencingActor The actor restoring the reference. This is important for knowing how this actor referenced the actor to save reference.
+	 *						   In blueprint this is almost always "Self" so just put that in.
+	 * @param state The save sate, needed to grab some extra information to restore this reference.
+	 */
+	UFUNCTION(BlueprintCallable, meta = (HidePin = "referencingActor", DefaultToSelf = "referencingActor"))
+	AActor* ReadActorReference(const USpudState* state, AActor* referencingActor);
+
 	/// Access the underlying archive in order to write custom data directly.
 	FArchive* GetUnderlyingArchive() const { return SPUDAr; }
 

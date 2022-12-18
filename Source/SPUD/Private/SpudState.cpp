@@ -1329,6 +1329,18 @@ bool USpudState::LoadSaveInfoFromArchive(FArchive& SPUDAr, USpudSaveGameInfo& Ou
 	
 }
 
+void USpudStateCustomData::WriteActorReference(class AActor* actorToSaveReference, const USpudState* state, AActor* referencingActor)
+{
+	FSpudStoreRestoreHelpers::StoreActorReference(referencingActor, state, this, actorToSaveReference);
+}
+
+AActor* USpudStateCustomData::ReadActorReference(const USpudState* state, AActor* referencingActor)
+{
+	TWeakObjectPtr<AActor> actorToRestore;
+	FSpudStoreRestoreHelpers::RestoreActorReference(referencingActor, state, this, actorToRestore);
+	return actorToRestore.Get();
+}
+
 void USpudStateCustomData::BeginWriteChunk(FString MagicID)
 {
 	auto MagicChar = StringCast<ANSICHAR>(*MagicID);
