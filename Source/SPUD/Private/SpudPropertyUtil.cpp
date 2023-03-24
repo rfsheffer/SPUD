@@ -909,6 +909,27 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 	}
 	if (!bUpdateOK)
 	{
+#if WITH_EDITOR
+		// Special case reading Nativized blueprint enums which are UEnum properties when nativized but are UByte properties when blueprint
+		if(StoredProperty.DataType == ESST_UInt16 && GetPropertyDataType(Property) == ESST_UInt8)
+		{
+			const UBlueprintGeneratedClass* blueprintClass = Cast<UBlueprintGeneratedClass>(Property->GetOwnerUObject());
+			if(blueprintClass)
+			{
+				// Has to be the case since blueprints cannot define unsigned types
+				uint16 valIn;
+				DataIn << valIn;
+
+				const FByteProperty* IProp = CastField<FByteProperty>(Property);
+				if(IProp)
+				{
+					IProp->SetPropertyValue(DataPtr, valIn);
+					return;
+				}
+			}
+		}
+#endif
+		
 		UE_LOG(LogSpudProps, Error, TEXT("Unable to restore property %s, unsupported type."), *Property->GetName());
 	}
 	
