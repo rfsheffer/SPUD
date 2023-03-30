@@ -776,8 +776,8 @@ void SpudPropertyUtil::StoreContainerProperty(FProperty* Property,
 			// Pass in the referencing actor so we can setup possible cross level referencing, or complain when we cannot.
 			const AActor* referencingActor = Cast<AActor>(RootObject);
 			bUpdateOK = TryWriteUObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out) ||
-				        TryWriteSoftObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out) ||
-				        TryWriteMulticastDelegatePropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out);
+				        TryWriteSoftObjectPropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out);
+			//||TryWriteMulticastDelegatePropertyData(Property, PrefixID, DataPtr, bIsArrayElement, Depth, ClassDef, PrefixToPropertyOffsets, referencingActor, WorldReferenceLookups, Meta, Out);
 		}
 	}
 	if (!bUpdateOK)
@@ -902,8 +902,9 @@ void SpudPropertyUtil::RestoreContainerProperty(UObject* RootObject, FProperty* 
 			if (auto Actor = Cast<AActor>(RootObject))
 				Level = Actor->GetLevel();
 			bUpdateOK = TryReadUObjectPropertyData(Property, DataPtr, StoredProperty, WorldReferenceLookups, Level, RootObject, Meta, Depth, DataIn) ||
-						TryReadSoftObjectPropertyData(Property, DataPtr, StoredProperty, WorldReferenceLookups, Level, Meta, Depth, DataIn) ||
-						TryReadMulticastDelegatePropertyData(Property, DataPtr, StoredProperty, WorldReferenceLookups, Level, Meta, Depth, DataIn);
+						TryReadSoftObjectPropertyData(Property, DataPtr, StoredProperty, WorldReferenceLookups, Level, Meta, Depth, DataIn);
+			//||
+						//TryReadMulticastDelegatePropertyData(Property, DataPtr, StoredProperty, WorldReferenceLookups, Level, Meta, Depth, DataIn);
 		}
 		
 	}
