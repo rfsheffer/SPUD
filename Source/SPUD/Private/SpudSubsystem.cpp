@@ -1229,6 +1229,21 @@ USpudCustomSaveInfo* USpudSubsystem::CreateCustomSaveInfo()
 	return NewObject<USpudCustomSaveInfo>();
 }
 
+USpudCustomSaveInfo* USpudSubsystem::CopyCustomSaveInfo(USpudCustomSaveInfo* toCopy)
+{
+	USpudCustomSaveInfo* newInfo = NewObject<USpudCustomSaveInfo>();
+	if(newInfo)
+	{
+		if(toCopy)
+		{
+			newInfo->SetData(toCopy->GetData());
+		}
+		return newInfo;
+	}
+
+	return nullptr;
+}
+
 // FTickableGameObject begin
 
 

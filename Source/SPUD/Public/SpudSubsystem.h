@@ -291,6 +291,12 @@ public:
 	UFUNCTION(BlueprintCallable)
 	USpudCustomSaveInfo* CreateCustomSaveInfo();
 
+	/// Create a copy of a previous save game descriptor which you can use to store additional descriptive information about a save game.
+	/// Fill the returned object in then pass it to the SaveGame call to have additional info to display on save/load screens
+	/// Could be things like completion percentage, hours played, current quests, character class, character level etc
+	UFUNCTION(BlueprintCallable)
+	USpudCustomSaveInfo* CopyCustomSaveInfo(USpudCustomSaveInfo* toCopy);
+
 	/**
 	 * @brief Copy a current save game to another slot or auto save slot
 	 * @param PrevSlotName The slot to copy
