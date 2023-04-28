@@ -1004,7 +1004,7 @@ USpudSaveGameInfo* USpudSubsystem::GetSaveGameInfo(const FString& SlotName, cons
 {
 	IFileManager& FM = IFileManager::Get();
 	// We want to parse just the very first part of the file, not all of it
-	FString AbsoluteFilename = FPaths::Combine(GetSaveGameDirectory(), SlotName + ".sav");
+	FString AbsoluteFilename = FPaths::Combine(GetSaveGameDirectory(), SlotName + TEXT(".sav"));
 	auto Archive = TUniquePtr<FArchive>(FM.CreateFileReader(*AbsoluteFilename));
 
 	if(!Archive)
@@ -1058,17 +1058,28 @@ FString USpudSubsystem::GetSaveGameDirectory() const
 	}
 	return FString::Printf(TEXT("%s/"), *FPaths::Combine(GInternalFilePath, TEXT("SaveGames")));
 #else
+
+	FString basedSavedFolder;
+	if(!GameSavedFolder.IsEmpty())
+	{
+		basedSavedFolder = GameSavedFolder;
+	}
+	else
+	{
+		basedSavedFolder = FPaths::ProjectSavedDir();
+	}
+	
 	if(!UserNameFolderName.IsEmpty())
 	{
-		return FString::Printf(TEXT("%sSaveGames/%s/"), *FPaths::ProjectSavedDir(), *UserNameFolderName);
+		return FPaths::Combine(basedSavedFolder, TEXT("SaveGames"), UserNameFolderName);
 	}
-	return FString::Printf(TEXT("%sSaveGames/"), *FPaths::ProjectSavedDir());
+	return FPaths::Combine(basedSavedFolder, TEXT("SaveGames"));
 #endif
 }
 
 FString USpudSubsystem::GetSaveGameFilePath(const FString& SlotName) const
 {
-	return FString::Printf(TEXT("%s%s.sav"), *GetSaveGameDirectory(), *SlotName);
+	return FPaths::Combine(GetSaveGameDirectory(), SlotName + TEXT(".sav"));
 }
 
 void USpudSubsystem::ListSaveGameFiles(TArray<FString>& OutSaveFileList) const

@@ -152,6 +152,9 @@ protected:
 	/// Set via SetUserNameFolder and ClearUserNameFolder. So multiple accounts can have different save folders.
 	FString UserNameFolderName;
 
+	/// Override for saved folder
+	FString GameSavedFolder;
+
 	// The currently active game state
 	UPROPERTY()
 	USpudState* ActiveState;
@@ -544,6 +547,18 @@ public:
 	void ClearUserNameFolder()
 	{
 		UserNameFolderName.Empty();
+	}
+	
+	UFUNCTION(BlueprintCallable)
+	void SetGameSavedFolder(const FString newFolder)
+	{
+		GameSavedFolder = newFolder;
+	}
+	
+	UFUNCTION(BlueprintCallable)
+	void ClearGameSavedFolder()
+	{
+		GameSavedFolder.Empty();
 	}
 
 	UFUNCTION(BlueprintPure)
