@@ -1495,7 +1495,7 @@ FString USpudState::GetActiveGameLevelFolder()
 {
 #if PLATFORM_ANDROID
 	extern FString GInternalFilePath;
-	return FString::Printf(TEXT("%s/"), *FPaths::Combine(GInternalFilePath, TEXT("SpudCache")));
+	return FString::Printf(TEXT("%s/"), *FPaths::Combine(GInternalFilePath, TEXT("cache"), TEXT("SpudCache")));
 #else
 	return FString::Printf(TEXT("%sSpudCache/"), *FPaths::ProjectSavedDir());
 #endif
