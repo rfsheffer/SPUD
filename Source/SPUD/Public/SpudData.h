@@ -571,6 +571,7 @@ struct FSpudIndex : public FSpudChunk
 		uint32 Index;
 		if (Lookup.RemoveAndCopyValue(Old, Index))
 		{
+			UniqueValues[Index] = New;
 			Lookup.Add(New, Index);
 			return Index;
 		}

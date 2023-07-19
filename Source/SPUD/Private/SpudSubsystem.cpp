@@ -1172,8 +1172,8 @@ public:
 						if (UpgradeCallback.Execute(State))
 						{
 							// Move aside old save
-							FString BackupFilename = AbsoluteFilename + ".bak"; 
-							FileMgr.Move(*BackupFilename, *AbsoluteFilename, true, true);
+							//FString BackupFilename = AbsoluteFilename + ".bak"; 
+							//FileMgr.Move(*BackupFilename, *AbsoluteFilename, true, true);
 							// Now save
 							auto OutArchive = TUniquePtr<FArchive>(FileMgr.CreateFileWriter(*AbsoluteFilename));
 							if (OutArchive)
