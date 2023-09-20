@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--SPUD plugin additions-->
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- init section is always evaluated once per architecture -->
+	<init>
+	</init>
+
+	<gameActivityClassAdditions>
+		<insert>
+public native void nativeSPUDSetNoBackupFilesDir(boolean isValid, String noBackupFilesDir);
+		</insert>
+	</gameActivityClassAdditions>
+
+	<gameActivityOverrideAPKOBBPackaging>
+		<insert>
+<![CDATA[
+		// SPUD Additions
+		if (ANDROID_BUILD_VERSION >= 21)
+		{
+			Log.debug("SPUD Setting NoBackupFilesDir: " + getNoBackupFilesDir().getPath());
+			nativeSPUDSetNoBackupFilesDir(true, getNoBackupFilesDir().getPath());
+		}
+		else
+		{
+			Log.debug("SPUD android version less than 21, defaulting NoBackupFilesDir: " + getFilesDir().getPath());
+			nativeSPUDSetNoBackupFilesDir(false, getFilesDir().getPath());
+		}
+		// END SPUD Additions
+]]>
+		</insert>
+	</gameActivityOverrideAPKOBBPackaging>
+</root>

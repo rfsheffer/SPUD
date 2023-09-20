@@ -13,6 +13,11 @@
 #include "ImageUtils.h"
 #include "GameFramework/PlayerState.h"
 
+#if PLATFORM_ANDROID && USE_ANDROID_JNI
+#include "Android/AndroidJNI.h"
+#include "Android/AndroidApplication.h"
+#endif
+
 DEFINE_LOG_CATEGORY(LogSpudState)
 
 USpudState::USpudState()
@@ -1491,11 +1496,22 @@ bool USpudStateCustomData::IsStillInChunk(FString MagicID) const
 	
 }
 
+FString SPUDAndroidNoBackupFilesDir;
+bool SPUDAndroidNoBackupFilesDirValid = false;
+
+#if PLATFORM_ANDROID && USE_ANDROID_JNI
+JNI_METHOD void Java_com_epicgames_ue4_GameActivity_nativeSPUDSetNoBackupFilesDir(JNIEnv* jenv, jobject thiz, jboolean isValid, jstring noBackupFilesDir)
+{
+	SPUDAndroidNoBackupFilesDir = FJavaHelper::FStringFromParam(jenv, noBackupFilesDir);
+	SPUDAndroidNoBackupFilesDirValid = isValid;
+	UE_LOG(LogSpudData, Log, TEXT("SPUD Cache root directory: %s"), *SPUDAndroidNoBackupFilesDir);
+}
+#endif
+
 FString USpudState::GetActiveGameLevelFolder()
 {
 #if PLATFORM_ANDROID
-	extern FString GInternalFilePath;
-	return FString::Printf(TEXT("%s/"), *FPaths::Combine(GInternalFilePath, TEXT("cache"), TEXT("SpudCache")));
+	return FString::Printf(TEXT("%s/"), *FPaths::Combine(SPUDAndroidNoBackupFilesDir, TEXT("SpudCache")));
 #else
 	return FString::Printf(TEXT("%sSpudCache/"), *FPaths::ProjectSavedDir());
 #endif
