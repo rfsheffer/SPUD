@@ -1500,7 +1500,11 @@ FString SPUDAndroidNoBackupFilesDir;
 bool SPUDAndroidNoBackupFilesDirValid = false;
 
 #if PLATFORM_ANDROID && USE_ANDROID_JNI
+#if ENGINE_MAJOR_VERSION >= 5
+JNI_METHOD void Java_com_epicgames_unreal_GameActivity_nativeSPUDSetNoBackupFilesDir(JNIEnv* jenv, jobject thiz, jboolean isValid, jstring noBackupFilesDir)
+#else
 JNI_METHOD void Java_com_epicgames_ue4_GameActivity_nativeSPUDSetNoBackupFilesDir(JNIEnv* jenv, jobject thiz, jboolean isValid, jstring noBackupFilesDir)
+#endif
 {
 	SPUDAndroidNoBackupFilesDir = FJavaHelper::FStringFromParam(jenv, noBackupFilesDir);
 	SPUDAndroidNoBackupFilesDirValid = isValid;
