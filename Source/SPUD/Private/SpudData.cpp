@@ -484,7 +484,11 @@ void FSpudClassMetadata::WriteToArchive(FSpudChunkedDataArchive& Ar)
 {
 	if (ChunkStart(Ar))
 	{
-		UserDataModelVersion.Version = GCurrentUserDataModelVersion;
+		if(!Ar.ForUpgrade || UserDataModelVersion.Version == -1)
+		{
+			UserDataModelVersion.Version = GCurrentUserDataModelVersion;
+		}
+
 		UserDataModelVersion.WriteToArchive(Ar);
 		
 		ClassNameIndex.WriteToArchive(Ar);
@@ -958,8 +962,12 @@ void FSpudSaveData::WriteToArchive(FSpudChunkedDataArchive& Ar, const FString& L
 {
 	if (ChunkStart(Ar))
 	{
-		Info.WriteToArchive(Ar);	
+		Info.WriteToArchive(Ar);
+		// Always update the global data version so the save files aren't resaved again
+		const bool cachedForUpgrade = Ar.ForUpgrade;
+		Ar.ForUpgrade = false;
 		GlobalData.WriteToArchive(Ar);
+		Ar.ForUpgrade = cachedForUpgrade;
 
 		// Manually write the level data because its source could be memory, or piped in from files
 		FSpudAdhocWrapperChunk LevelDataMapChunk(SPUDDATA_LEVELDATAMAP_MAGIC);

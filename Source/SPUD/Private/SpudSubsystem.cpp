@@ -1133,11 +1133,13 @@ public:
 			if (State->SaveData.GlobalData.IsUserDataModelOutdated())
 				return true;
 
-			for (auto& Pair : State->SaveData.LevelDataMap)
-			{
-				if (Pair.Value->IsUserDataModelOutdated())
-					return true;				
-			}
+			// UNDONE: If the global data version is fine there is no need to check the level data which could be outdated
+			//		   but we update that 
+			//for (auto& Pair : State->SaveData.LevelDataMap)
+			//{
+			//	if (Pair.Value->IsUserDataModelOutdated())
+			//		return true;				
+			//}
 
 			return false;
 		}
@@ -1178,7 +1180,7 @@ public:
 							auto OutArchive = TUniquePtr<FArchive>(FileMgr.CreateFileWriter(*AbsoluteFilename));
 							if (OutArchive)
 							{
-								State->SaveToArchive(*OutArchive);
+								State->SaveToArchive(*OutArchive, true);
 							}
 						}
 					}

@@ -167,10 +167,16 @@ struct SPUD_API FSpudChunkHeader
 
 struct SPUD_API FSpudChunkedDataArchive : public FArchiveProxy
 {
-	FSpudChunkedDataArchive(FArchive& InInnerArchive)
+	FSpudChunkedDataArchive(FArchive& InInnerArchive, const bool forUpgrade = false)
         : FArchiveProxy(InInnerArchive)
+		, ForUpgrade(forUpgrade)
 	{
 	}
+
+	/**
+	 * @brief If true, this archive is being serialized as part of the save upgrade path
+	 */
+	bool ForUpgrade = false;
 
 	/// Try to read the header of the next chunk and populate OutHeader
 	/// Optionally returns the archive position to the previous position afterwards so doesn't
@@ -240,7 +246,7 @@ struct SPUD_API FSpudPropertyDef
 struct SPUD_API FSpudVersionInfo : public FSpudChunk
 {
 	// Signed for blueprint compat (user version might be set from BP)
-	int32 Version;
+	int32 Version = -1;
 
 
 	virtual const char* GetMagic() const override { return SPUDDATA_VERSIONINFO_MAGIC; }
