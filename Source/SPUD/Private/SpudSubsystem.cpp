@@ -606,7 +606,7 @@ void USpudSubsystem::UpdateSaveGameInfo(const FString& SlotName, const FText& Ti
 		auto OutArchive = TUniquePtr<FArchive>(FileMgr.CreateFileWriter(*AbsoluteFilename));
 		if (OutArchive)
 		{
-			State->SaveToArchive(*OutArchive);
+			State->SaveToArchive(*OutArchive, true);
 		}
 	}
 }

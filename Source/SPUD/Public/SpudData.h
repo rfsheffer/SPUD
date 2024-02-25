@@ -167,16 +167,16 @@ struct SPUD_API FSpudChunkHeader
 
 struct SPUD_API FSpudChunkedDataArchive : public FArchiveProxy
 {
-	FSpudChunkedDataArchive(FArchive& InInnerArchive, const bool forUpgrade = false)
+	FSpudChunkedDataArchive(FArchive& InInnerArchive, const bool keepCurrentVersioning = false)
         : FArchiveProxy(InInnerArchive)
-		, ForUpgrade(forUpgrade)
+		, KeepCurrentVersioning(keepCurrentVersioning)
 	{
 	}
 
 	/**
-	 * @brief If true, this archive is being serialized as part of the save upgrade path
+	 * @brief If true, the versioning in the archive chunks will be maintained and not updated
 	 */
-	bool ForUpgrade = false;
+	bool KeepCurrentVersioning = false;
 
 	/// Try to read the header of the next chunk and populate OutHeader
 	/// Optionally returns the archive position to the previous position afterwards so doesn't

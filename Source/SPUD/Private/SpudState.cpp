@@ -1277,15 +1277,14 @@ void USpudState::StoreLevelActorDestroyed(AActor* Actor, FSpudSaveData::TLevelDa
 	LevelData->DestroyedActors.Add(SpudPropertyUtil::GetLevelActorName(Actor));
 }
 
-void USpudState::SaveToArchive(FArchive& SPUDAr, const bool forUpgrade)
+void USpudState::SaveToArchive(FArchive& SPUDAr, const bool keepCurrentVersioning)
 {
 	// We use separate read / write in order to more clearly support chunked file format
 	// with the backwards compatibility that comes with 
-	FSpudChunkedDataArchive ChunkedAr(SPUDAr, forUpgrade);
+	FSpudChunkedDataArchive ChunkedAr(SPUDAr, keepCurrentVersioning);
 	SaveData.PrepareForWrite();
 	// Use WritePaged in all cases; if all data is loaded it amounts to the same thing
 	SaveData.WriteToArchive(ChunkedAr, GetActiveGameLevelFolder());
-
 }
 
 void USpudState::LoadFromArchive(FArchive& SPUDAr, bool bFullyLoadAllLevelData)

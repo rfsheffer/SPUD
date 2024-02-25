@@ -315,7 +315,7 @@ public:
 
 	/// Save all contents to an archive
 	/// This includes all paged out level data, which will be recombined
-	virtual void SaveToArchive(FArchive& SPUDAr, const bool forUpgrade = false);
+	virtual void SaveToArchive(FArchive& SPUDAr, const bool keepCurrentVersioning = false);
 
 	/**
 	 * @brief 
