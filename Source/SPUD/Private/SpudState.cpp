@@ -99,6 +99,17 @@ void USpudState::StoreLevel(ULevel* Level, bool bRelease, bool bBlocking)
 		ReleaseLevelData(LevelName, bBlocking);
 }
 
+bool USpudState::IsLevelStored(ULevel* Level)
+{
+	if(!Level)
+	{
+		return false;
+	}
+	const FString LevelName = GetLevelName(Level);
+	const auto LevelData = GetLevelData(LevelName, false);
+	return LevelData.IsValid();
+}
+
 USpudState::StorePropertyVisitor::StorePropertyVisitor(
 	USpudState* Parent,
 	TSharedPtr<FSpudClassDef> InClassDef, TPrefixedPropertyOffsets& InPrefixToPropertyOffsets,
@@ -236,6 +247,11 @@ void USpudState::WriteCoreActorData(AActor* Actor, FArchive& Out) const
 
 FString USpudState::GetLevelName(ULevel* Level)
 {
+	if(!Level)
+	{
+		return FString();
+	}
+	
 	// Fist see if the user has requested a specific name assigned to this level
 	// They do this to setup unique IDs for thier instanced levels.
 	FString* RequestedLevelName = WorldLevelsToName.Find(Level);

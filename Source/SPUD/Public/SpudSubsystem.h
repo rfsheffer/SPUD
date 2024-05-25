@@ -215,9 +215,9 @@ protected:
 	void PostLoadStreamLevel(int32 LinkID);
 	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
     void PostUnloadStreamLevel(int32 LinkID);
-	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
-    void PostLoadStreamLevelGameThread(FName LevelName);
-	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
+	//UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
+    void PostLoadStreamLevelGameThread(FName LevelName, ULevel* Level);
+	//UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
     void PostUnloadStreamLevelGameThread(FName LevelName);
 
 	void StoreWorld(UWorld* World, bool bReleaseLevels, bool bBlocking);
@@ -232,7 +232,7 @@ protected:
 	void LoadComplete(const FString& SlotName, bool bSuccess);
 	void SaveComplete(const FString& SlotName, bool bSuccess);
 
-	void HandleLevelLoaded(FName LevelName);
+	void HandleLevelLoaded(FName LevelName, ULevel* Level = nullptr);
 	void HandleLevelUnloaded(ULevel* Level);
 
 	void LoadStreamLevel(FName LevelName, bool Blocking);
@@ -496,6 +496,16 @@ public:
 	void NotifyLevelLoadedExternally(FName LevelName);
 
 	/**
+	 * NOTE: This should be used for instanced levels whose internal names change and level names become unreliable otherwise.
+	 * Notify @see USpudSubsystem that a level was loaded externally. By default, SPUD uses its custom
+	 * @see ASpudStreamingVolume instances for notification of level streaming events. This method provides
+	 * an interface to use other methods of loading streaming levels.
+	 * @param Level The level object itself
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly)
+	void NotifyInstancedLevelLoadedExternally(ULevel* Level);
+
+	/**
 	 * Notify @see USpudSubsystem that a level was unloaded externally. By default, SPUD uses its custom
 	 * @see ASpudStreamingVolume instances for notification of level streaming events. This method provides
 	 * an interface to use other methods of unloading streaming levels.
@@ -511,6 +521,14 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, DisplayName = "Get SPUD Level Name")
 	FString GetSPUDLevelName(ULevel* Level);
+
+	/**
+	 * Returns true if the level passed in has stored level data in the save file or loose files
+	 * @param Level The level to check
+	 * @return True if the level is stored in the save file or loose files
+	 */
+	UFUNCTION(BlueprintPure)
+	bool GetIsLevelStored(ULevel* Level);
 
 	/**
 	 * Updates the SPUD state to use a specific name when referencing a level

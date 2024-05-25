@@ -239,6 +239,9 @@ public:
 	 */
 	void StoreLevel(ULevel* Level, bool bReleaseAfter, bool bBlocking);
 
+	/// Returns true if the supplied level has stored data
+	bool IsLevelStored(ULevel* Level);
+
 	/// Store the state of an actor. Does not require the object to implement ISpudObject
 	/// This object will be associated with its level, and so will only be restored when its level is loaded.
 	/// Will page in the level data concerned from disk if necessary and will retain it in memory

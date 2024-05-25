@@ -151,6 +151,11 @@ void USpudSubsystem::NotifyLevelLoadedExternally(FName LevelName)
 	HandleLevelLoaded(LevelName);
 }
 
+void USpudSubsystem::NotifyInstancedLevelLoadedExternally(ULevel* Level)
+{
+	HandleLevelLoaded(*GetSPUDLevelName(Level), Level);
+}
+
 void USpudSubsystem::NotifyLevelUnloadedExternally(ULevel* Level)
 {
 	HandleLevelUnloaded(Level);
@@ -159,6 +164,11 @@ void USpudSubsystem::NotifyLevelUnloadedExternally(ULevel* Level)
 FString USpudSubsystem::GetSPUDLevelName(ULevel* Level)
 {
 	return GetActiveState()->GetLevelName(Level);
+}
+
+bool USpudSubsystem::GetIsLevelStored(ULevel* Level)
+{
+	return GetActiveState()->IsLevelStored(Level);
 }
 
 void USpudSubsystem::AssignNameToLevel(ULevel* Level, const FString& NameToAssign)
@@ -423,23 +433,37 @@ void USpudSubsystem::SaveComplete(const FString& SlotName, bool bSuccess)
 	PostSaveGame.Broadcast(SlotName, bSuccess);
 }
 
-void USpudSubsystem::HandleLevelLoaded(FName LevelName)
+void USpudSubsystem::HandleLevelLoaded(FName LevelName, ULevel* Level)
 {
 	// Defer the restore to the game thread, streaming calls happen in loading thread?
 	// However, quickly ping the state to force it to pre-load the leveldata
 	// that way the loading occurs in this thread, less latency
 	GetActiveState()->PreLoadLevelData(LevelName.ToString());
 
-	AsyncTask(ENamedThreads::GameThread, [this, LevelName]()
+	if(Level && IsInGameThread())
 	{
-		// But also add a slight delay so we get a tick in between so physics works
-		FTimerHandle H;
-		if (UWorld* World = GetWorld())
+		// Call immediately for cases where we have the level already and it is the game thread
+		PostLoadStreamLevelGameThread(LevelName, Level);
+	}
+	
+	AsyncTask(ENamedThreads::GameThread, [this, LevelName, Level]()
+	{
+		if(Level)
 		{
-			World->GetTimerManager().SetTimer(H, [this, LevelName]()
+			// Call immediately if level is valid
+			PostLoadStreamLevelGameThread(LevelName, Level);
+		}
+		else
+		{
+			// But also add a slight delay so we get a tick in between so physics works
+			FTimerHandle H;
+			if (UWorld* World = GetWorld())
 			{
-				PostLoadStreamLevelGameThread(LevelName);
-			}, 0.01, false);
+				World->GetTimerManager().SetTimer(H, [this, LevelName, Level]()
+				{
+					PostLoadStreamLevelGameThread(LevelName, Level);
+				}, 0.01, false);
+			}
 		}
 	});
 }
@@ -781,34 +805,47 @@ void USpudSubsystem::PostLoadStreamLevel(int32 LinkID)
 }
 
 
-void USpudSubsystem::PostLoadStreamLevelGameThread(FName LevelName)
+void USpudSubsystem::PostLoadStreamLevelGameThread(FName LevelName, ULevel* Level)
 {
 	PostLoadStreamingLevel.Broadcast(LevelName);
-	auto StreamLevel = UGameplayStatics::GetStreamingLevel(GetWorld(), LevelName);
-
-	if (StreamLevel)
+	ULevelStreaming* StreamLevel = nullptr;
+	// If there is no level supplied we get the streaming level and the loaded level ourselves.
+	// Otherwise, it is assumed that everything is ready and this request is direct from the developer wanting
+	// the existing already loaded level itself restored. No need for us to make the level visible either.
+	if(!Level)
 	{
-		ULevel* Level = StreamLevel->GetLoadedLevel();
-		if (!Level)
+		StreamLevel = UGameplayStatics::GetStreamingLevel(GetWorld(), LevelName);
+		if(!StreamLevel)
 		{
-			UE_LOG(LogSpudSubsystem, Log, TEXT("PostLoadStreamLevel called for %s but level is null; probably unloaded again?"), *LevelName.ToString());
+			UE_LOG(LogSpudSubsystem, Warning, TEXT("PostLoadStreamLevel called for %s but no streaming level exists?"), *LevelName.ToString());
 			return;
 		}
-		PreLevelRestore.Broadcast(LevelName.ToString());
-		// It's important to note that this streaming level won't be added to UWorld::Levels yet
-		// This is usually where things like the TActorIterator get actors from, ULevel::Actors
-		// we have the ULevel here right now, so restore it directly
-		GetActiveState()->RestoreLevel(Level);
 
-		// NB: after restoring the level, we could release MOST of the memory for this level
-		// However, we don't for 2 reasons:
-		// 1. Destroyed actors for this level are logged continuously while running, so that still needs to be active
-		// 2. We can assume that we'll need to write data back to save when this level is unloaded. It's actually less
-		//    memory thrashing to re-use the same memory we have until unload, since it'll likely be almost identical in structure
-		StreamLevel->SetShouldBeVisible(true);
-		SubscribeLevelObjectEvents(Level);
-		PostLevelRestore.Broadcast(LevelName.ToString(), true);
+		Level = StreamLevel->GetLoadedLevel();
+		if (!Level)
+		{
+			UE_LOG(LogSpudSubsystem, Warning, TEXT("PostLoadStreamLevel called for %s but level is null; probably unloaded again?"), *LevelName.ToString());
+			return;
+		}
 	}
+	
+	PreLevelRestore.Broadcast(LevelName.ToString());
+	// It's important to note that this streaming level won't be added to UWorld::Levels yet
+	// This is usually where things like the TActorIterator get actors from, ULevel::Actors
+	// we have the ULevel here right now, so restore it directly
+	GetActiveState()->RestoreLevel(Level);
+
+	// NB: after restoring the level, we could release MOST of the memory for this level
+	// However, we don't for 2 reasons:
+	// 1. Destroyed actors for this level are logged continuously while running, so that still needs to be active
+	// 2. We can assume that we'll need to write data back to save when this level is unloaded. It's actually less
+	//    memory thrashing to re-use the same memory we have until unload, since it'll likely be almost identical in structure
+	if(StreamLevel)
+	{
+		StreamLevel->SetShouldBeVisible(true);
+	}
+	SubscribeLevelObjectEvents(Level);
+	PostLevelRestore.Broadcast(LevelName.ToString(), true);
 }
 
 void USpudSubsystem::UnloadStreamLevel(FName LevelName)

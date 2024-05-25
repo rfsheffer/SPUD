@@ -1167,15 +1167,12 @@ void FSpudSaveData::DeleteAllLevelDataFiles(const FString& LevelPath)
 	IFileManager& FM = IFileManager::Get();
 	
 	TArray<FString> LevelFiles;
-	FM.FindFiles(LevelFiles, *LevelPath, TEXT(".lvl"));
+	FM.FindFilesRecursive(LevelFiles, *LevelPath, TEXT("*.lvl"), true, false);
 
 	for (auto && File : LevelFiles)
 	{
-		// We want to parse just the very first part of the file, not all of it
-		FString AbsoluteFilename = FPaths::Combine(LevelPath, File);
-		FM.Delete(*AbsoluteFilename);
+		FM.Delete(*File);
 	}
-
 }
 
 FString FSpudSaveData::GetLevelDataPath(const FString& LevelPath, const FString& LevelName)
