@@ -225,6 +225,7 @@ public:
 		const TMap<FGuid, UObject*>* RuntimeObjectMap = nullptr;
 		const TMap<FString, ULevel*>* WorldLevelsMap = nullptr;
 		const TMap<TWeakObjectPtr<ULevel>, FString>* WorldLevelToNameMap = nullptr;
+		const TMap<FString, FString>* PatchNamesMapping = nullptr;
 	};
 	
 	static void StoreProperty(const UObject* RootObject,
@@ -582,7 +583,7 @@ public:
 				// If LevelRefString is set, try to lookup a current loaded level to search there
 				if(!LevelRefString.IsEmpty() && WorldReferenceLookups.WorldLevelsMap)
 				{
-					ULevel* const * foundLevel = WorldReferenceLookups.WorldLevelsMap->Find(*LevelRefString);
+					ULevel* const * foundLevel = WorldReferenceLookups.WorldLevelsMap->Find(LevelRefString);
 					if(foundLevel)
 					{
 						Level = *foundLevel;
@@ -591,6 +592,38 @@ public:
 					{
 						// Null the level pointer so the next stage will throw an error.
 						Level = nullptr;
+
+						// RETAIL FIX: Try to resolve name issues with levels named {name}_LevelInstance_4
+						const int32 levelInstStart = LevelRefString.Find(TEXT("_LevelInstance_"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+						if(levelInstStart != INDEX_NONE)
+						{
+							UE_LOG(LogSpudProps, Warning, TEXT("Fixed level reference string containing LevelInstance postfix in property '%s', before fixed named '%s'"), *ReferencingPropertyName, *LevelRefString);
+							FString newLevelName = LevelRefString.Left(levelInstStart);
+
+							const FString* patchedName = WorldReferenceLookups.PatchNamesMapping->Find(newLevelName);
+							if(patchedName)
+							{
+								newLevelName = *patchedName;
+							}
+							
+							foundLevel = WorldReferenceLookups.WorldLevelsMap->Find(newLevelName);
+							if(foundLevel)
+							{
+								Level = *foundLevel;
+							}
+						}
+						else
+						{
+							const FString* patchedName = WorldReferenceLookups.PatchNamesMapping->Find(LevelRefString);
+							if(patchedName)
+							{
+								foundLevel = WorldReferenceLookups.WorldLevelsMap->Find(*patchedName);
+								if(foundLevel)
+								{
+									Level = *foundLevel;
+								}
+							}
+						}
 					}
 				}
 				

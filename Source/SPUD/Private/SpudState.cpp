@@ -265,7 +265,7 @@ FString USpudState::GetLevelName(ULevel* Level)
 	// GetLevel()->GetPathName returns e.g. /Game/Maps/[UEDPIE_0_]TestAdventureMap.TestAdventureMap:PersistentLevel
 	// Outer is "PersistentLevel"
 	// Outermost is "/Game/Maps/[UEDPIE_0_]TestAdventureStream0" so that's what we want
-	const auto OuterMost = Level->GetOutermost();
+	/*const auto OuterMost = Level->GetOutermost();
 	if (OuterMost)
 	{
 		FString LevelName;
@@ -274,6 +274,16 @@ FString USpudState::GetLevelName(ULevel* Level)
 		if (LevelName.StartsWith("UEDPIE_"))
 			LevelName = LevelName.Right(LevelName.Len() - 9);
 		return LevelName;
+	}*/
+
+	// UNDONE ABOVE: this gives the correct name for levels, no UEDPIE_N_ or _LevelInstance_N.
+	// Don't use GetOutermost since it will return a name with _LevelInstance_N in the case of an instance level.
+	const UObject* outer = Level->GetOuter();
+	if(outer)
+	{
+		const FString nameOut = outer->GetName();
+		UE_LOG(LogSpudState, Warning, TEXT("Level '%s' not registered in WorldLevelsToName!"), *nameOut);
+		return nameOut;
 	}
 	
 	return FString();
@@ -1311,7 +1321,7 @@ void USpudState::LoadFromArchive(FArchive& SPUDAr, bool bFullyLoadAllLevelData)
 	Source = SPUDAr.GetArchiveName();
 	
 	FSpudChunkedDataArchive ChunkedAr(SPUDAr);
-	SaveData.ReadFromArchive(ChunkedAr, bFullyLoadAllLevelData, GetActiveGameLevelFolder());
+	SaveData.ReadFromArchive(ChunkedAr, bFullyLoadAllLevelData, GetActiveGameLevelFolder(), PatchNamesMapping);
 }
 
 bool USpudState::IsLevelDataLoaded(const FString& LevelName)
@@ -1681,6 +1691,13 @@ void USpudState::AssignNameToLevel(ULevel* Level, const FString& NameToAssign)
 			}
 		}
 
+		FString right;
+		if(NameToAssign.Split(TEXT("/"), nullptr, &right, ESearchCase::CaseSensitive, ESearchDir::FromEnd))
+		{
+			// Store a name fixup for names which lost their pathing info
+			PatchNamesMapping.Add(right, NameToAssign);
+		}
+
 		if(numFound > 1)
 		{
 			UE_LOG(LogSpudState, Error, TEXT("AssignNameToLevel assigning multiple levels the same name. This will cause issues!"));
@@ -1696,4 +1713,5 @@ void USpudState::UnassignNameFromLevel(ULevel* Level)
 void USpudState::ClearAssignedNameToLevels()
 {
 	WorldLevelsToName.Empty();
+	PatchNamesMapping.Empty();
 }

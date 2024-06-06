@@ -872,7 +872,7 @@ struct SPUD_API FSpudSaveData : public FSpudChunk
 	 * @param bLoadAllLevels If true, all levels will be loaded into memory. If false, none will be & data will be split for later loading
 	 * @param LevelPath The parent directory where level chunks should be written as separate files
 	 */
-	virtual void ReadFromArchive(FSpudChunkedDataArchive& Ar, bool bLoadAllLevels, const FString& LevelPath);
+	virtual void ReadFromArchive(FSpudChunkedDataArchive& Ar, bool bLoadAllLevels, const FString& LevelPath, const TMap<FString, FString>& patchNamesMapping);
 	
 	/**
 	 * @brief Retrieve data for a single level, loading it if necessary. Thread-safe.

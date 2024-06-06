@@ -91,6 +91,9 @@ protected:
 	UPROPERTY()
 	TMap<TWeakObjectPtr<ULevel>, FString> WorldLevelsToName;
 
+	// iDGi hack fix for names being messed up in retail saves
+	TMap<FString, FString> PatchNamesMapping;
+
 	/// Consolidate world reference lookups into a FWorldReferenceLookups package
 	SpudPropertyUtil::FWorldReferenceLookups GetWorldReferenceLookups() const
 	{
@@ -98,6 +101,7 @@ protected:
 		LookupsOut.RuntimeObjectMap = &RuntimeObjectsByGuid;
 		LookupsOut.WorldLevelsMap = &WorldLevelsMap;
 		LookupsOut.WorldLevelToNameMap = &WorldLevelsToName;
+		LookupsOut.PatchNamesMapping = &PatchNamesMapping;
 		return LookupsOut;
 	}
 
@@ -318,7 +322,7 @@ public:
 
 	/// Save all contents to an archive
 	/// This includes all paged out level data, which will be recombined
-	virtual void SaveToArchive(FArchive& SPUDAr, const bool keepCurrentVersioning = false);
+	void SaveToArchive(FArchive& SPUDAr, const bool keepCurrentVersioning = false);
 
 	/**
 	 * @brief 
@@ -326,7 +330,7 @@ public:
 	 * @param bFullyLoadAllLevelData If true, load all data into memory including all data for all levels. If false,
 	 * only load global data and enumerate levels, piping level data to separate disk files instead for loading individually later
 	 */
-	virtual void LoadFromArchive(FArchive& SPUDAr, bool bFullyLoadAllLevelData);
+	void LoadFromArchive(FArchive& SPUDAr, bool bFullyLoadAllLevelData);
 
 	/// Get the name of the persistent level which the player is on in this state
 	FString GetPersistentLevel() const { return SaveData.GlobalData.CurrentLevel; }

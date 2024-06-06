@@ -702,6 +702,13 @@ bool FSpudLevelData::ReadLevelInfoFromArchive(FSpudChunkedDataArchive& Ar, bool 
 	OutDataSize = Hdr.Length;
 	Ar << OutLevelName;
 
+	// HACK: Fixup names with LevelInstance_N
+	const int32 levelInstStart = OutLevelName.Find(TEXT("_LevelInstance_"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+	if(levelInstStart != INDEX_NONE)
+	{
+		OutLevelName = OutLevelName.Left(levelInstStart);
+	}
+
 	if (bReturnToStart)
 		Ar.Seek(Start);
 
@@ -717,6 +724,14 @@ void FSpudLevelData::ReadFromArchive(FSpudChunkedDataArchive& Ar, uint32 StoredS
 	if (ChunkStart(Ar))
 	{
 		Ar << Name;
+
+		// HACK: Fixup names with LevelInstance_N
+		const int32 levelInstStart = Name.Find(TEXT("_LevelInstance_"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+		if(levelInstStart != INDEX_NONE)
+		{
+			Name = Name.Left(levelInstStart);
+		}
+		
 		Ar << LevelTimeSeconds;
 
 		const uint32 MetadataID = FSpudChunkHeader::EncodeMagic(SPUDDATA_METADATA_MAGIC);
@@ -1018,7 +1033,7 @@ void FSpudSaveData::WriteToArchive(FSpudChunkedDataArchive& Ar, const FString& L
 	
 }
 
-void FSpudSaveData::ReadFromArchive(FSpudChunkedDataArchive& Ar, bool bLoadAllLevels, const FString& LevelPath)
+void FSpudSaveData::ReadFromArchive(FSpudChunkedDataArchive& Ar, bool bLoadAllLevels, const FString& LevelPath, const TMap<FString, FString>& patchNamesMapping)
 {
 	if (ChunkStart(Ar))
 	{
@@ -1074,6 +1089,13 @@ void FSpudSaveData::ReadFromArchive(FSpudChunkedDataArchive& Ar, bool bLoadAllLe
 								TLevelDataPtr LvlData(new FSpudLevelData());
 								LvlData->ReadFromArchive(Ar, Info.SystemVersion);
 								{
+									// Fixup name remaps
+									const FString* renampName = patchNamesMapping.Find(LvlData->Name);
+									if(renampName)
+									{
+										LvlData->Name = *renampName;
+									}
+									
 									FScopeLock MapMutex(&LevelDataMapMutex);					
 									LevelDataMap.Add(LvlData->Key(), LvlData);
 								}
@@ -1086,6 +1108,13 @@ void FSpudSaveData::ReadFromArchive(FSpudChunkedDataArchive& Ar, bool bLoadAllLe
 								int64 LevelDataSize;
 								if (FSpudLevelData::ReadLevelInfoFromArchive(Ar, true, LevelName, LevelDataSize))
 								{
+									// Fixup name remaps
+									const FString* renampName = patchNamesMapping.Find(LevelName);
+									if(renampName)
+									{
+										LevelName = *renampName;
+									}
+									
 									IFileManager& FileMgr = IFileManager::Get();
 									auto OutLevelArchive = TUniquePtr<FArchive>(FileMgr.CreateFileWriter(*GetLevelDataPath(LevelPath, LevelName)));
 
@@ -1134,7 +1163,8 @@ void FSpudSaveData::ReadFromArchive(FSpudChunkedDataArchive& Ar, bool bLoadAllLe
 
 void FSpudSaveData::ReadFromArchive(FSpudChunkedDataArchive& Ar, uint32 StoredSystemVersion)
 {
-	ReadFromArchive(Ar, true, "");
+	//ReadFromArchive(Ar, true, "");
+	UE_LOG(LogSpudData, Error, TEXT("ReadFromArchive called, use extended version instead!"));
 }
 
 
